@@ -1,8 +1,9 @@
 # paperless
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 3.3.1](https://img.shields.io/badge/AppVersion-3.3.1-informational?style=flat-square)
-
 paperless-ngx, rootless and one process per container, with optional Tika, Gotenberg and Valkey
+
+<!-- Nothing Renovate updates (chart and app versions, image tags) appears here: its pull requests
+cannot regenerate this README, and CI fails on a stale one. -->
 
 [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) without s6: one pod, one process per
 container (webserver, consumer, Celery worker and scheduler), every container rootless with a read-only
@@ -25,7 +26,7 @@ With nothing else set, paperless runs on SQLite with the bundled Valkey, Tika an
 Releases are attested by GitHub Actions:
 
 ```sh
-gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paperless:0.1.0
+gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paperless:<version>
 ```
 
 ## Components
@@ -94,7 +95,7 @@ Kubernetes: `>=1.30.0-0`
 | gotenberg.enabled | bool | `true` | Deploy Gotenberg and set paperless's Gotenberg endpoint |
 | gotenberg.image.pullPolicy | string | `"IfNotPresent"` |  |
 | gotenberg.image.repository | string | `"docker.io/gotenberg/gotenberg"` |  |
-| gotenberg.image.tag | string | `"8.37@sha256:f29984bd1e226bf1b93ba90af06000afa8b315853e99d27b9aaa41b93f15c769"` |  |
+| gotenberg.image.tag | string | pinned in values.yaml, updated by Renovate | Tag and digest |
 | gotenberg.nodeSelector | object | `{}` |  |
 | gotenberg.podAnnotations | object | `{}` |  |
 | gotenberg.podLabels | object | `{}` |  |
@@ -119,7 +120,7 @@ Kubernetes: `>=1.30.0-0`
 | httpRoute.parentRefs | list | `[]` | Gateways to attach to |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.repository | string | `"ghcr.io/sebastka/paperless"` | paperless image. The chart runs the commands of [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless) (no shell, no s6: `paperless-tessdata`, `paperless-wait-for-db`), not upstream's |
-| image.tag | string | `"3.3.1@sha256:dc45fea63b05f0439a650a4c1b23a1b499ef9d11d4deaa41f36ae783edc472d6"` | Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion |
+| image.tag | string | pinned in values.yaml, updated by Renovate | Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion |
 | imagePullSecrets | list | `[]` | Secrets to pull every image with |
 | nameOverride | string | `""` | Overrides the chart name, used in resource names |
 | paperless.affinity | object | `{}` |  |
@@ -178,7 +179,7 @@ Kubernetes: `>=1.30.0-0`
 | tika.enabled | bool | `true` | Deploy Apache Tika and set paperless's Tika endpoint |
 | tika.image.pullPolicy | string | `"IfNotPresent"` |  |
 | tika.image.repository | string | `"docker.io/apache/tika"` |  |
-| tika.image.tag | string | `"3.3.1.0-full@sha256:d8e6ed96260ad89307a93195a1b856102987a818ac648502f8efbaf313d32470"` |  |
+| tika.image.tag | string | pinned in values.yaml, updated by Renovate | Tag and digest |
 | tika.nodeSelector | object | `{}` |  |
 | tika.podAnnotations | object | `{}` |  |
 | tika.podLabels | object | `{}` |  |
@@ -199,7 +200,7 @@ Kubernetes: `>=1.30.0-0`
 | valkey.enabled | bool | `true` | Deploy Valkey as paperless's broker. Disable to use `externalValkey` |
 | valkey.image.pullPolicy | string | `"IfNotPresent"` |  |
 | valkey.image.repository | string | `"docker.io/valkey/valkey"` |  |
-| valkey.image.tag | string | `"9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11"` |  |
+| valkey.image.tag | string | pinned in values.yaml, updated by Renovate | Tag and digest |
 | valkey.nodeSelector | object | `{}` |  |
 | valkey.podAnnotations | object | `{}` |  |
 | valkey.podLabels | object | `{}` |  |

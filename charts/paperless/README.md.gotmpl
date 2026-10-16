@@ -1,8 +1,9 @@
 {{ template "chart.header" . }}
 
-{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
-
 {{ template "chart.description" . }}
+
+<!-- Nothing Renovate updates (chart and app versions, image tags) appears here: its pull requests
+cannot regenerate this README, and CI fails on a stale one. -->
 
 [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) without s6: one pod, one process per
 container (webserver, consumer, Celery worker and scheduler), every container rootless with a read-only
@@ -25,7 +26,7 @@ With nothing else set, paperless runs on SQLite with the bundled Valkey, Tika an
 Releases are attested by GitHub Actions:
 
 ```sh
-gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paperless:{{ template "chart.version" . }}
+gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paperless:<version>
 ```
 
 ## Components
