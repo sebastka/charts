@@ -1,0 +1,5 @@
+---
+
+extends: .yamllint.rules.yaml
+
+ignore-from-file: [.gitignore, .yamlignore]

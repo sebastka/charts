@@ -1,0 +1,176 @@
+---
+suite: paperless
+templates: [ConfigMaps.yaml, Deployment.paperless.yaml, PersistentVolumeClaim.yaml, Service.yaml, ServiceAccount.yaml]
+release: {name: paperless, namespace: documents}
+tests:
+  - it: names the resources after the release, without repeating the chart name
+    template: Deployment.paperless.yaml
+    asserts:
+      - equal: {path: metadata.name, value: paperless}
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: paperless, app.kubernetes.io/instance: paperless}
+
+  - it: sets the release namespace on every resource
+    asserts:
+      - equal: {path: metadata.namespace, value: documents}
+
+  - it: prefixes the resources with another release name
+    template: Deployment.paperless.yaml
+    release: {name: docs}
+    asserts:
+      - equal: {path: metadata.name, value: docs-paperless}
+
+  - it: merges paperless.env over what the chart sets, as strings
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: paperless-env}
+    set:
+      paperless.env:
+        PAPERLESS_TIME_ZONE: Europe/Oslo
+        PAPERLESS_TASK_WORKERS: 2
+        PAPERLESS_AI_ENABLED: true
+        PAPERLESS_DATA_DIR: /elsewhere
+    asserts:
+      - equal: {path: data.PAPERLESS_TIME_ZONE, value: Europe/Oslo}
+      - equal: {path: data.PAPERLESS_TASK_WORKERS, value: '2'}
+      - equal: {path: data.PAPERLESS_AI_ENABLED, value: 'true'}
+      - equal: {path: data.PAPERLESS_DATA_DIR, value: /elsewhere}
+      - equal: {path: data.PAPERLESS_MEDIA_ROOT, value: /usr/src/paperless/media}
+      - equal: {path: data.TESSDATA_PREFIX, value: /mnt/tessdata}
+
+  - it: loads the Secret after the ConfigMap, so it wins on duplicate keys
+    template: Deployment.paperless.yaml
+    set:
+      paperless.existingSecret: paperless-secrets
+      paperless.extraEnvFrom: [{secretRef: {name: extra}}]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "webserver")].envFrom
+          value:
+            - configMapRef: {name: paperless-env}
+            - secretRef: {name: paperless-secrets}
+            - secretRef: {name: extra}
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "tessdata")].envFrom
+          value: [configMapRef: {name: paperless-env}]
+
+  - it: runs the init chain in order, llmindex-migrate only with AI enabled
+    template: Deployment.paperless.yaml
+    asserts:
+      - lengthEqual: {path: spec.template.spec.initContainers, count: 8}
+      - equal: {path: 'spec.template.spec.initContainers[0].name', value: tessdata}
+      - equal: {path: 'spec.template.spec.initContainers[1].name', value: wait-for-db}
+      - equal: {path: 'spec.template.spec.initContainers[2].name', value: wait-for-redis}
+      - equal: {path: 'spec.template.spec.initContainers[3].name', value: folders}
+      - equal: {path: 'spec.template.spec.initContainers[4].name', value: migrate}
+      - equal: {path: 'spec.template.spec.initContainers[5].name', value: reindex}
+      - equal: {path: 'spec.template.spec.initContainers[6].name', value: superuser}
+      - equal: {path: 'spec.template.spec.initContainers[7].name', value: system-checks}
+      - lengthEqual: {path: spec.template.spec.containers, count: 4}
+      - equal: {path: 'spec.template.spec.containers[0].name', value: consumer}
+      - equal: {path: 'spec.template.spec.containers[1].name', value: scheduler}
+      - equal: {path: 'spec.template.spec.containers[2].name', value: worker}
+      - equal: {path: 'spec.template.spec.containers[3].name', value: webserver}
+
+  - it: adds llmindex-migrate when PAPERLESS_AI_ENABLED is true
+    template: Deployment.paperless.yaml
+    set:
+      paperless.env.PAPERLESS_AI_ENABLED: 'yes'
+      paperless.initContainers.reindex.enabled: false
+      paperless.initContainers.superuser.enabled: false
+      paperless.initContainers.systemChecks.enabled: false
+    asserts:
+      - lengthEqual: {path: spec.template.spec.initContainers, count: 6}
+      - equal: {path: 'spec.template.spec.initContainers[5].name', value: llmindex-migrate}
+
+  - it: rolls the pod when the configuration changes
+    template: Deployment.paperless.yaml
+    set:
+      paperless.env.PAPERLESS_TIME_ZONE: Europe/Oslo
+    asserts:
+      - exists: {path: 'spec.template.metadata.annotations["checksum/config"]'}
+
+  - it: runs the webserver with the chart's settings, or not
+    template: Deployment.paperless.yaml
+    set:
+      paperless.webserver.customSettings: false
+    asserts:
+      - notExists: {path: 'spec.template.spec.containers[?(@.name == "webserver")].env'}
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: settings, configMap: {name: paperless-settings}}
+
+  - it: mounts the extra scripts in the consumer and the worker
+    template: Deployment.paperless.yaml
+    set:
+      paperless.scripts:
+        post-consume.py: print("consumed")
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name == "consumer")].volumeMounts
+          content: {name: scripts, mountPath: /mnt/scripts/post-consume.py, subPath: post-consume.py, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[?(@.name == "worker")].volumeMounts
+          content: {name: scripts, mountPath: /mnt/scripts/post-consume.py, subPath: post-consume.py, readOnly: true}
+
+  - it: ships the scripts executable
+    template: Deployment.paperless.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: scripts, configMap: {name: paperless-scripts, defaultMode: 493}}
+
+  - it: creates and keeps a PersistentVolumeClaim by default
+    template: PersistentVolumeClaim.yaml
+    set:
+      persistence.storageClassName: longhorn
+    asserts:
+      - equal: {path: metadata.name, value: paperless-data}
+      - equal: {path: 'metadata.annotations["helm.sh/resource-policy"]', value: keep}
+      - equal: {path: spec.storageClassName, value: longhorn}
+      - equal: {path: spec.resources.requests.storage, value: 20Gi}
+
+  - it: uses an existing claim instead
+    set:
+      persistence.existingClaim: paperless-data-pvc
+    asserts:
+      - hasDocuments: {count: 0}
+        template: PersistentVolumeClaim.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: data, persistentVolumeClaim: {claimName: paperless-data-pvc}}
+        template: Deployment.paperless.yaml
+
+  - it: falls back to an emptyDir without persistence
+    template: Deployment.paperless.yaml
+    set:
+      persistence.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: data, emptyDir: {}}
+
+  - it: uses the image tag with its digest, or the appVersion
+    template: Deployment.paperless.yaml
+    set:
+      image.tag: ''
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/sebastka/paperless:\d+\.\d+\.\d+$
+
+  - it: serves the webserver's named port
+    template: Service.yaml
+    asserts:
+      - equal:
+          path: spec.ports
+          value: [{name: http, protocol: TCP, port: 80, targetPort: http}]
+
+  - it: can use an existing ServiceAccount
+    set:
+      paperless.serviceAccount: {create: false, name: shared}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: ServiceAccount.yaml
+      - equal: {path: spec.template.spec.serviceAccountName, value: shared}
+        template: Deployment.paperless.yaml

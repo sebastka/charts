@@ -1,0 +1,27 @@
+paperless-ngx {{ .Chart.AppVersion }} is starting: its init containers migrate the database first, which can take a while after an upgrade.
+
+{{- if .Values.httpRoute.enabled }}
+{{- range .Values.httpRoute.hostnames }}
+
+  https://{{ . }}
+{{- end }}
+{{- else }}
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "paperless.fullname" . }} 8000:{{ .Values.service.port }}
+{{- end }}
+
+Logs of every container:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "paperless.fullname" . }} --all-containers --max-log-requests 15 --follow
+
+Sanity check:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "paperless.fullname" . }} -c worker -- python3 manage.py document_sanity_checker
+{{- if not (or .Values.paperless.existingSecret .Values.paperless.extraEnvFrom .Values.paperless.env.PAPERLESS_SECRET_KEY) }}
+
+WARNING: no paperless.existingSecret. paperless runs with its default PAPERLESS_SECRET_KEY, which is public.
+{{- end }}
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. Documents are lost with the pod.
+{{- end }}

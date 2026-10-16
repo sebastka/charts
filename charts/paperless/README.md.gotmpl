@@ -1,0 +1,79 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+{{ template "chart.description" . }}
+
+[paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) without s6: one pod, one process per
+container (webserver, consumer, Celery worker and scheduler), every container rootless with a read-only
+root filesystem. Its init containers mirror the s6 init chain of upstream's image: Tesseract data, waits
+for the database and the broker, folders, migrations, index, superuser, system checks.
+
+It runs [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless),
+built on Docker Hardened Images, without a shell: upstream's image will not work.
+
+## Installing
+
+```sh
+helm install paperless oci://ghcr.io/sebastka/charts/paperless --namespace paperless --create-namespace
+```
+
+With nothing else set, paperless runs on SQLite with the bundled Valkey, Tika and Gotenberg. Set
+`paperless.existingSecret` to a Secret holding at least `PAPERLESS_SECRET_KEY`, and, for PostgreSQL,
+`PAPERLESS_DBHOST` (in `paperless.env`) and `PAPERLESS_DBPASS` (in the Secret).
+
+Releases are attested by GitHub Actions:
+
+```sh
+gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paperless:{{ template "chart.version" . }}
+```
+
+## Components
+
+| Component | Enabled by | Notes |
+|-----------|------------|-------|
+| Valkey | `valkey.enabled` (opt-out) | The Celery broker, without persistence. Disable it for `externalValkey.url`, or `PAPERLESS_REDIS` in the Secret |
+| Tika and Gotenberg | `tika.enabled`, `gotenberg.enabled` (opt-out) | Office documents and emails. Together, or not at all |
+| HTTPRoute | `httpRoute.enabled` | Gateway API, named after the release for policies to target. `httpRoute.extraRules` takes implementation-specific filters |
+| CiliumNetworkPolicies | `ciliumNetworkPolicy.enabled` | Paperless reaches its components, and only paperless reaches them. Add the database, mail servers… to `ciliumNetworkPolicy.egress` |
+
+## Configuration
+
+`paperless.env` is rendered into a ConfigMap, over what the chart sets itself: the folders it mounts,
+`PAPERLESS_REDIS` and the Tika and Gotenberg endpoints (from the enabled components), `TESSDATA_PREFIX`,
+and the listening address. Changing it rolls the pod. Secrets go in `paperless.existingSecret`, which
+takes precedence.
+
+```yaml
+paperless:
+  existingSecret: paperless-secrets  # PAPERLESS_SECRET_KEY, PAPERLESS_DBPASS…
+  env:
+    PAPERLESS_URL: https://paperless.example.com
+    PAPERLESS_DBHOST: postgres.example.com
+    PAPERLESS_OCR_LANGUAGES: deu fra  # Downloaded by the tessdata init container
+    PAPERLESS_OCR_LANGUAGE: deu+fra
+    PAPERLESS_TIME_ZONE: Europe/Berlin
+```
+
+The webserver runs with the chart's Django settings (`paperless.webserver.customSettings`): `__Host-`
+prefixed, Secure cookies, so serve it over HTTPS, or turn them off.
+
+## Password logins behind SSO
+
+`PAPERLESS_DISABLE_REGULAR_LOGIN` hides the login form, but leaves three password logins open:
+
+- HTTP Basic authentication on the API: the chart's webserver settings drop it when the variable is set.
+- `POST /api/token/`, which mints an API token from a username and a password.
+- `/admin/login/`, Django's admin login form.
+
+The last two are the gateway's to block, for instance with `httpRoute.extraRules` matching them and an
+implementation-specific filter answering 403.
+
+## Upgrading
+
+The Deployment's selector is `app.kubernetes.io/name` and `app.kubernetes.io/instance`: immutable, so
+never renamed. The PersistentVolumeClaim the chart creates is kept on uninstall.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

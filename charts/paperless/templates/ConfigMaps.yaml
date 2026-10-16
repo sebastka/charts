@@ -1,0 +1,45 @@
+{{- include "paperless.validate" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "paperless.componentName" (list . "env") }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "paperless") | nindent 4 }}
+data:
+  {{- range $key, $value := include "paperless.env" . | fromYaml }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "paperless.componentName" (list . "scripts") }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "paperless") | nindent 4 }}
+data:
+  worker-health.py: |
+    {{- .Files.Get "files/scripts/worker-health.py" | nindent 4 }}
+  {{- if .Values.paperless.aiReviewScript }}
+  paperless-ai-review.py: |
+    {{- .Files.Get "files/scripts/paperless-ai-review.py" | nindent 4 }}
+  {{- end }}
+  {{- range $name, $content := .Values.paperless.scripts }}
+  {{ $name }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- if .Values.paperless.webserver.customSettings }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "paperless.componentName" (list . "settings") }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "paperless") | nindent 4 }}
+data:
+  webserver.py: |
+    {{- .Files.Get "files/settings/webserver.py" | nindent 4 }}
+{{- end }}

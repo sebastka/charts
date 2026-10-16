@@ -1,0 +1,50 @@
+{{- if .Values.ciliumNetworkPolicy.enabled }}
+{{- $namespace := .Release.Namespace }}
+{{- $paperless := include "paperless.selectorLabels" (list . "paperless") | fromYaml }}
+{{- $fromPaperless := merge (dict "k8s:io.kubernetes.pod.namespace" $namespace) $paperless }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "paperless.fullname" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "paperless") | nindent 4 }}
+spec:
+  endpointSelector: {matchLabels: {{ toJson $paperless }}}
+  {{- with .Values.ciliumNetworkPolicy.ingress }}
+  ingress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  egress:
+    {{- range $component, $port := dict "valkey" "6379" "tika" "9998" "gotenberg" "3000" }}
+    {{- if (index $.Values $component).enabled }}
+    {{- $selector := merge (dict "k8s:io.kubernetes.pod.namespace" $namespace) (include "paperless.selectorLabels" (list $ $component) | fromYaml) }}
+    - {toEndpoints: [matchLabels: {{ toJson $selector }}], toPorts: [ports: [{port: '{{ $port }}', protocol: TCP}]]}
+    {{- end }}
+    {{- end }}
+    {{- if (include "paperless.env" . | fromYaml).PAPERLESS_OCR_LANGUAGES }}
+    # The tessdata init container's downloads
+    - {toFQDNs: [matchName: raw.githubusercontent.com], toPorts: [ports: [{port: '443', protocol: TCP}]]}
+    {{- end }}
+    {{- with .Values.ciliumNetworkPolicy.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- range $component, $port := dict "valkey" "6379" "tika" "9998" "gotenberg" "3000" }}
+{{- if (index $.Values $component).enabled }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "paperless.componentName" (list $ $component) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list $ $component) | nindent 4 }}
+spec:
+  endpointSelector: {matchLabels: {{ include "paperless.selectorLabels" (list $ $component) | fromYaml | toJson }}}
+  ingress:
+    - {fromEndpoints: [matchLabels: {{ toJson $fromPaperless }}], toPorts: [ports: [{port: '{{ $port }}', protocol: TCP}]]}
+  # egress: []
+{{- end }}
+{{- end }}
+{{- end }}

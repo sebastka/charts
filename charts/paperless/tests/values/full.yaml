@@ -1,0 +1,57 @@
+---
+# Every optional feature on, as a homelab would run it: rendered for kubeconform in CI
+commonLabels: {example.com/team: documents}
+imagePullSecrets: [{name: regcred}]
+
+paperless:
+  existingSecret: paperless-secrets
+  annotations:
+    reloader.stakater.com/auto: 'true'
+  env:
+    PAPERLESS_URL: https://paperless.example.com
+    PAPERLESS_DBHOST: db.example.com
+    PAPERLESS_DBENGINE: postgresql
+    PAPERLESS_DB_OPTIONS: connect_timeout=10,sslmode=disable,pool.max_size=50
+    PAPERLESS_OCR_LANGUAGE: nor
+    PAPERLESS_OCR_LANGUAGES: nor
+    PAPERLESS_DISABLE_REGULAR_LOGIN: true
+    PAPERLESS_AI_ENABLED: true
+    PAPERLESS_TASK_WORKERS: 1
+    PAPERLESS_OCR_USER_ARGS: '{"invalidate_digital_signatures":true}'
+  scripts:
+    post-consumption.py: |
+      #!/opt/paperless/bin/python
+      import os
+      print(f"Consumed document {os.environ['DOCUMENT_ID']}")
+  nodeSelector: {kubernetes.io/arch: amd64}
+
+persistence:
+  existingClaim: paperless-data-pvc
+
+httpRoute:
+  enabled: true
+  parentRefs:
+    - {namespace: gateway, name: default, sectionName: https}
+  hostnames: [paperless.example.com]
+  filters:
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+          - {name: Strict-Transport-Security, value: 'max-age=31536000; includeSubDomains; preload'}
+  extraRules:
+    - matches: [path: {type: PathPrefix, value: /old}]
+      filters: [{type: RequestRedirect, requestRedirect: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}]
+
+ciliumNetworkPolicy:
+  enabled: true
+  ingress:
+    - {fromEndpoints: [matchLabels: {k8s:io.kubernetes.pod.namespace: envoy-gateway-system}], toPorts: [ports: [{port: '8000', protocol: TCP}]]}
+  egress:
+    - {toFQDNs: [matchName: db.example.com], toPorts: [ports: [{port: '5432', protocol: TCP}]]}
+
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: '{{ include "paperless.fullname" . }}-extra'
+    data: {release: '{{ .Release.Name }}'}

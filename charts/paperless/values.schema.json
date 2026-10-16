@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "stringMap": {"type": "object", "additionalProperties": {"type": "string"}},
+    "resources": {"type": "object"},
+    "initContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"resources": {"$ref": "#/definitions/resources"}}
+    },
+    "optionalInitContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "resources": {"$ref": "#/definitions/resources"}
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/definitions/image"},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "resources": {"$ref": "#/definitions/resources"},
+        "podAnnotations": {"$ref": "#/definitions/stringMap"},
+        "podLabels": {"$ref": "#/definitions/stringMap"},
+        "podSecurityContext": {"type": "object"},
+        "securityContext": {"type": "object"},
+        "nodeSelector": {"$ref": "#/definitions/stringMap"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"}
+      }
+    }
+  },
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "commonLabels": {"$ref": "#/definitions/stringMap"},
+    "imagePullSecrets": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+    "extraObjects": {"type": "array", "items": {"type": ["object", "string"]}},
+    "image": {"$ref": "#/definitions/image"},
+    "paperless": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+          "additionalProperties": {"type": ["string", "boolean", "integer"]}
+        },
+        "existingSecret": {"type": "string"},
+        "extraEnv": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+        "extraEnvFrom": {"type": "array", "items": {"type": "object"}},
+        "webserver": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"customSettings": {"type": "boolean"}}
+        },
+        "aiReviewScript": {"type": "boolean"},
+        "scripts": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z0-9._-]+$"},
+          "additionalProperties": {"type": "string"}
+        },
+        "annotations": {"$ref": "#/definitions/stringMap"},
+        "podAnnotations": {"$ref": "#/definitions/stringMap"},
+        "podLabels": {"$ref": "#/definitions/stringMap"},
+        "podSecurityContext": {"type": "object"},
+        "securityContext": {"type": "object"},
+        "nodeSelector": {"$ref": "#/definitions/stringMap"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"},
+        "priorityClassName": {"type": "string"},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
+        "tessdataSizeLimit": {"type": "string"},
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {"type": "boolean"},
+            "name": {"type": "string"},
+            "annotations": {"$ref": "#/definitions/stringMap"}
+          }
+        },
+        "initContainers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tessdata": {"$ref": "#/definitions/initContainer"},
+            "waitForDb": {"$ref": "#/definitions/initContainer"},
+            "waitForRedis": {"$ref": "#/definitions/initContainer"},
+            "folders": {"$ref": "#/definitions/initContainer"},
+            "migrate": {"$ref": "#/definitions/initContainer"},
+            "llmindexMigrate": {"$ref": "#/definitions/initContainer"},
+            "reindex": {"$ref": "#/definitions/optionalInitContainer"},
+            "superuser": {"$ref": "#/definitions/optionalInitContainer"},
+            "systemChecks": {"$ref": "#/definitions/optionalInitContainer"}
+          }
+        },
+        "containers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "webserver": {"$ref": "#/definitions/initContainer"},
+            "consumer": {"$ref": "#/definitions/initContainer"},
+            "scheduler": {"$ref": "#/definitions/initContainer"},
+            "worker": {"$ref": "#/definitions/initContainer"}
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "existingClaim": {"type": "string"},
+        "storageClassName": {"type": "string"},
+        "accessModes": {"type": "array", "minItems": 1, "items": {"enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany", "ReadOnlyMany"]}},
+        "size": {"type": "string"},
+        "volumeName": {"type": "string"},
+        "labels": {"$ref": "#/definitions/stringMap"},
+        "annotations": {"$ref": "#/definitions/stringMap"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "annotations": {"$ref": "#/definitions/stringMap"}
+      }
+    },
+    "httpRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "annotations": {"$ref": "#/definitions/stringMap"},
+        "labels": {"$ref": "#/definitions/stringMap"},
+        "parentRefs": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+        "hostnames": {"type": "array", "items": {"type": "string"}},
+        "filters": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+        "extraRules": {"type": "array", "items": {"type": "object"}}
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"properties": {"parentRefs": {"minItems": 1}}}
+    },
+    "ciliumNetworkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "ingress": {"type": "array", "items": {"type": "object"}},
+        "egress": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "tika": {"$ref": "#/definitions/component"},
+    "gotenberg": {"$ref": "#/definitions/component"},
+    "valkey": {"$ref": "#/definitions/component"},
+    "externalValkey": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {"type": "string", "pattern": "^$|^rediss?(\\+socket)?://"}
+      }
+    }
+  }
+}

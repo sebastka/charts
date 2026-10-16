@@ -1,0 +1,10 @@
+---
+# chart-testing: https://github.com/helm/chart-testing/blob/main/doc/ct_lint-and-install.md
+chart-dirs: [charts]
+target-branch: master
+remote: origin
+validate-maintainers: true
+check-version-increment: true
+lint-conf: .yamllint.rules.yaml
+# paperless pulls a 1.4 GB image, then migrates its database before the webserver answers
+helm-extra-args: --timeout 900s

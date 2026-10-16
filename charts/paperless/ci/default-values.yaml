@@ -1,0 +1,5 @@
+---
+# ct install, on kind: the defaults (SQLite, bundled Valkey, Tika and Gotenberg), with a throwaway key
+paperless:
+  env:
+    PAPERLESS_SECRET_KEY: ct-install-only

@@ -1,0 +1,76 @@
+{{- if .Values.tika.enabled }}
+{{- $name := include "paperless.componentName" (list . "tika") }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "tika") | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "tika") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "paperless.selectorLabels" (list . "tika") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "paperless.labels" (list . "tika") | nindent 8 }}
+        {{- with .Values.tika.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.tika.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with include "paperless.imagePullSecrets" . | trim }}{{ . | nindent 6 }}{{ end }}
+      securityContext:
+        {{- toYaml .Values.tika.podSecurityContext | nindent 8 }}
+      {{- with include "paperless.scheduling" .Values.tika | trim }}{{ . | nindent 6 }}{{ end }}
+      containers:
+        - name: tika
+          # Dockerfile: https://github.com/apache/tika-docker/blob/main/full/Dockerfile
+          image: {{ include "paperless.image" (list . .Values.tika.image) }}
+          imagePullPolicy: {{ .Values.tika.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.tika.securityContext | nindent 12 }}
+          ports:
+            - {name: http, protocol: TCP, containerPort: 9998}
+          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 3}
+          livenessProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 10, periodSeconds: 120}
+          readinessProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 10, periodSeconds: 120}
+          resources:
+            {{- toYaml .Values.tika.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "tika") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "paperless.selectorLabels" (list . "tika") | nindent 4 }}
+  ports:
+    - {name: http, protocol: TCP, port: 80, targetPort: http}
+{{- end }}

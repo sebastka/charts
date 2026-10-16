@@ -1,0 +1,82 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "prHourlyLimit": 10,
+  "prConcurrentLimit": 25,
+  "minimumReleaseAge": "1 day",
+  "internalChecksAsSuccess": true,
+  "platformAutomerge": true,
+  "labels": ["renovate"],
+  "semanticCommits": "enabled",
+  "helm-values": {
+    "description": "Replaced by the values.yaml custom manager below, which reads tags that carry their digest (tag@sha256:...)",
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "description": "Images in a chart's values.yaml: repository, then tag (comment lines between them allowed), optionally with its digest",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)charts/[^/]+/values\\.yaml$/"],
+      "matchStrings": [
+        "repository:\\s*(?<depName>[^\\s#]+)[^\\n]*\\n(?:\\s*#[^\\n]*\\n)*\\s*tag:\\s*(?<currentValue>[^@\\s#]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "A chart's appVersion, which follows the image named in its renovate comment: same depName, so same PR as the image",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)charts/[^/]+/Chart\\.yaml$/"],
+      "matchStrings": [
+        "appVersion:\\s*(?<currentValue>[^\\s#]+)\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)"
+      ],
+      "datasourceTemplate": "{{datasource}}",
+      "depNameTemplate": "{{depName}}"
+    }
+  ],
+  "bumpVersions": [
+    {
+      "description": "Bump the chart's version with every update, as ct lint requires: minor for a major update, patch otherwise",
+      "filePatterns": ["{{packageFileDir}}/Chart.yaml"],
+      "matchStrings": ["\\nversion:\\s*(?<version>\\S+)"],
+      "bumpType": "{{#if isMajor}}minor{{else}}patch{{/if}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge every non-major update, all ecosystems",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest", "bump"],
+      "automerge": true
+    },
+    {
+      "description": "Digest refreshes are rebuilds of an already-vetted tag",
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Skip the stability delay for base images and self-built images",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "docker.io/valkey/valkey",
+        "docker.io/apache/tika",
+        "docker.io/gotenberg/gotenberg",
+        "ghcr.io/sebastka/**"
+      ],
+      "minimumReleaseAge": "0 days",
+      "schedule": ["after 4am and before 6am"],
+      "timezone": "Europe/Oslo"
+    },
+    {
+      "description": "OCI registries publish no release timestamp, so minimumReleaseAge can never be satisfied and internalChecksFilter=strict withholds the PR forever. docker.io (Hub API) is unaffected and keeps the 1 day delay",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/**", "quay.io/**", "registry.k8s.io/**"],
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Majors always need a human; keep them off automerge",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}

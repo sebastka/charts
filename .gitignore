@@ -1,0 +1,12 @@
+.*
+!.editorconfig
+!.github
+!.gitignore
+!.helmignore
+!.yamlignore
+!.yamllint.yaml
+!.yamllint.rules.yaml
+
+# helm package and helm dependency build output
+*.tgz
+charts/*/charts/

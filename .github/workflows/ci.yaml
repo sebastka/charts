@@ -1,0 +1,179 @@
+---
+name: CI
+
+'on':
+  # Deliberately no `paths` filter. `CI gate` below is a required status check,
+  # and a run that never starts leaves that check permanently pending, which would
+  # block the PR from merging rather than letting it through.
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v4.3.1
+  HELM_UNITTEST_VERSION: v1.2.1
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  KUBERNETES_VERSION: 1.34.0
+  HELM_DOCS_IMAGE: docker.io/jnorwood/helm-docs:v1.14.2@sha256:7e562b49ab6b1dbc50c3da8f2dd6ffa8a5c6bba327b1c6335cc15ce29267979c
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # ct compares against the target branch for the version increment check
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510  # v2.9.0
+
+      - name: yamllint
+        run: yamllint --strict .
+
+      # Every chart, not only the changed ones: lint is cheap, and a shared file can break any chart.
+      # The version increment check needs the changed ones, so it runs as its own pass.
+      - name: ct lint
+        run: |
+          ct lint --config ct.yaml --all --check-version-increment=false
+          ct lint --config ct.yaml
+
+      - name: Unit tests
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version "$HELM_UNITTEST_VERSION" --verify=false
+          for chart in charts/*/; do
+            helm unittest --strict "$chart"
+          done
+
+      # Every values file in tests/values/ too, which turn on what the defaults leave off (CRDs included)
+      - name: kubeconform
+        run: |
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz kubeconform
+
+          for chart in charts/*/; do
+            for values in /dev/null "$chart"tests/values/*.yaml; do
+              [[ -e "$values" ]] || continue
+              echo "::group::$chart with $values"
+              helm template "$(basename "$chart")" "$chart" --namespace ci --values "$values" \
+                | ./kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" \
+                    -schema-location default \
+                    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+              echo '::endgroup::'
+            done
+          done
+
+      - name: README up to date
+        run: |
+          docker run --rm --volume "$PWD:/helm-docs" --workdir /helm-docs "$HELM_DOCS_IMAGE" --chart-search-root charts
+          if ! git diff --exit-code -- 'charts/*/README.md'; then
+            echo '::error::A README.md is out of date: run helm-docs (see README.md) and commit the result'
+            exit 1
+          fi
+
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # ct list-changed diffs against the target branch
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510  # v2.9.0
+
+      - name: List changed charts
+        id: changed
+        run: |
+          changed="$(ct list-changed --config ct.yaml)"
+          echo "$changed"
+          if [[ -n "$changed" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create kind cluster
+        if: steps.changed.outputs.changed == 'true'
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa  # v1.15.1
+
+      # Installs each changed chart once per ci/*-values.yaml file, waits for every pod to be ready,
+      # then upgrades it from the target branch's version when there is one
+      - name: ct install
+        if: steps.changed.outputs.changed == 'true'
+        run: ct install --config ct.yaml --upgrade
+
+  config:
+    name: Misconfiguration scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to the Security tab
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Trivy renders each chart with its default values
+      - name: Scan charts
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: charts
+          format: sarif
+          output: trivy-config.sarif
+          hide-progress: true
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
+        with:
+          sarif_file: trivy-config.sarif
+
+  # Single stable check name for the ruleset on master to require. Only the jobs
+  # listed in `needs` can block a merge: the Trivy scan reports into the Security
+  # tab, but is deliberately left out so upstream CVE churn cannot freeze the repo.
+  gate:
+    name: CI gate
+    needs: [lint, install]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every required job passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+
+          # Job results are success | failure | cancelled | skipped.
+          if jq -e 'to_entries | any(.value.result == "failure" or .value.result == "cancelled")' <<< "$RESULTS" > /dev/null; then
+            echo '::error::One or more required jobs did not pass'
+            exit 1
+          fi
+
+          echo 'All required jobs passed.'

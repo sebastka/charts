@@ -1,0 +1,87 @@
+---
+suite: valkey, tika and gotenberg
+templates: [ConfigMaps.yaml, Valkey.yaml, Tika.yaml, Gotenberg.yaml]
+release: {name: paperless, namespace: documents}
+tests:
+  - it: bundles Valkey by default, as the broker
+    asserts:
+      - hasDocuments: {count: 3}
+        template: Valkey.yaml
+      - equal: {path: data.PAPERLESS_REDIS, value: 'redis://paperless-valkey:6379'}
+        template: ConfigMaps.yaml
+        documentSelector: {path: metadata.name, value: paperless-env}
+
+  - it: opts out of Valkey for an external broker
+    set:
+      valkey.enabled: false
+      externalValkey.url: redis://redis.example.com:6379/1
+    asserts:
+      - hasDocuments: {count: 0}
+        template: Valkey.yaml
+      - equal: {path: data.PAPERLESS_REDIS, value: 'redis://redis.example.com:6379/1'}
+        template: ConfigMaps.yaml
+        documentSelector: {path: metadata.name, value: paperless-env}
+
+  - it: leaves PAPERLESS_REDIS to the Secret without Valkey nor URL
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: paperless-env}
+    set:
+      valkey.enabled: false
+    asserts:
+      - notExists: {path: data.PAPERLESS_REDIS}
+
+  - it: lets paperless.env override the broker URL
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: paperless-env}
+    set:
+      paperless.env.PAPERLESS_REDIS: redis://other:6379
+    asserts:
+      - equal: {path: data.PAPERLESS_REDIS, value: 'redis://other:6379'}
+
+  - it: points paperless at Tika and Gotenberg
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: paperless-env}
+    asserts:
+      - equal: {path: data.PAPERLESS_TIKA_ENABLED, value: 'true'}
+      - equal: {path: data.PAPERLESS_TIKA_ENDPOINT, value: 'http://paperless-tika:80'}
+      - equal: {path: data.PAPERLESS_TIKA_GOTENBERG_ENDPOINT, value: 'http://paperless-gotenberg:80'}
+
+  - it: drops Tika and Gotenberg together
+    set:
+      tika.enabled: false
+      gotenberg.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
+        template: Tika.yaml
+      - hasDocuments: {count: 0}
+        template: Gotenberg.yaml
+      - notExists: {path: data.PAPERLESS_TIKA_ENABLED}
+        template: ConfigMaps.yaml
+        documentSelector: {path: metadata.name, value: paperless-env}
+
+  - it: refuses Tika without Gotenberg
+    template: ConfigMaps.yaml
+    set:
+      gotenberg.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "tika.enabled and gotenberg.enabled go together: paperless's Tika support needs both"
+
+  - it: labels each component with its own name, part of paperless
+    template: Tika.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: metadata.name, value: paperless-tika}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/name"]', value: tika}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/part-of"]', value: paperless}
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: tika, app.kubernetes.io/instance: paperless}
+
+  - it: overrides a component's image
+    template: Valkey.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      valkey.image: {repository: dhi.io/valkey, tag: 9.1.2-debian13}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].image', value: 'dhi.io/valkey:9.1.2-debian13'}

@@ -1,0 +1,318 @@
+---
+# -- Overrides the chart name, used in resource names
+nameOverride: ''
+# -- Overrides the full name of the resources (default: `<release>-paperless`, or `<release>` when it contains the chart name)
+fullnameOverride: ''
+# -- Labels added to every resource
+commonLabels: {}
+
+# -- Secrets to pull every image with
+imagePullSecrets: []
+
+# -- Extra manifests to deploy with the release. Strings and objects alike are rendered with `tpl`
+extraObjects: []
+
+#
+# paperless-ngx: webserver, consumer, Celery worker and scheduler, in a single pod
+#
+
+image:
+  # -- paperless image. The chart runs the commands of [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless)
+  # (no shell, no s6: `paperless-tessdata`, `paperless-wait-for-db`), not upstream's
+  repository: ghcr.io/sebastka/paperless
+  # -- Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion
+  tag: 3.3.1@sha256:dc45fea63b05f0439a650a4c1b23a1b499ef9d11d4deaa41f36ae783edc472d6
+  pullPolicy: IfNotPresent
+
+paperless:
+  # -- paperless configuration (https://docs.paperless-ngx.com/configuration/), rendered into a ConfigMap.
+  # Merged over what the chart sets itself: the paths it mounts, the Valkey, Tika and Gotenberg endpoints,
+  # `TESSDATA_PREFIX` and the listening address. Values are rendered as strings
+  # @default -- `{}`, besides what the chart sets
+  env: {}
+  # -- Secret with the sensitive part of the configuration, as environment variables
+  # (`PAPERLESS_SECRET_KEY`, `PAPERLESS_DBPASS`…). Takes precedence over `paperless.env`
+  existingSecret: ''
+  # -- Extra environment variables for every paperless container (`valueFrom` allowed)
+  extraEnv: []
+  # -- Extra `envFrom` sources for every paperless container, after the ConfigMap and the Secret
+  extraEnvFrom: []
+
+  webserver:
+    # -- Run the webserver with the chart's Django settings (`files/settings/webserver.py`): an access log in
+    # the combined format, `__Host-` prefixed, Secure and SameSite=Strict cookies (HTTPS only), and no
+    # HTTP Basic authentication on the API when `PAPERLESS_DISABLE_REGULAR_LOGIN` is set
+    customSettings: true
+
+  # -- Install `paperless-ai-review` in the worker container: an interactive review of the AI
+  # suggestions over the existing library (`kubectl exec -it … -c worker -- paperless-ai-review --help`)
+  aiReviewScript: true
+
+  # -- Extra scripts, `name: content`, mounted executable at `/mnt/scripts/<name>` in the consumer and
+  # worker containers. Point `PAPERLESS_PRE_CONSUME_SCRIPT` or `PAPERLESS_POST_CONSUME_SCRIPT` at them.
+  # The image has no shell: use `#!/opt/paperless/bin/python`
+  scripts: {}
+
+  # -- Annotations of the Deployment
+  annotations: {}
+  # -- Annotations of the pod
+  podAnnotations: {}
+  # -- Labels of the pod
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  # -- Security context of every paperless container, init containers included
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  priorityClassName: ''
+  terminationGracePeriodSeconds: 60
+
+  # -- Size limit of the emptyDir holding Tesseract's data (the image's, plus `PAPERLESS_OCR_LANGUAGES`)
+  tessdataSizeLimit: 256Mi
+
+  serviceAccount:
+    # -- Create the ServiceAccount
+    create: true
+    # -- Its name (default: the full name)
+    name: ''
+    annotations: {}
+
+  # The init containers, in order: they mirror the s6 init chain of upstream's image
+  initContainers:
+    # -- Copies the image's Tesseract data, and downloads `PAPERLESS_OCR_LANGUAGES`, into `TESSDATA_PREFIX`
+    tessdata:
+      resources:
+        requests: {memory: 64Mi}
+        limits: {memory: 64Mi}
+    # -- Waits for PostgreSQL (does nothing on SQLite)
+    waitForDb:
+      resources:
+        requests: {memory: 128Mi}
+        limits: {memory: 128Mi}
+    # -- Waits for the broker
+    waitForRedis:
+      resources:
+        requests: {memory: 128Mi}
+        limits: {memory: 128Mi}
+    # -- Creates the data, media, consume and export folders
+    folders:
+      resources:
+        requests: {memory: 64Mi}
+        limits: {memory: 64Mi}
+    # -- `manage.py migrate`
+    migrate:
+      resources:
+        requests: {memory: 256Mi}
+        limits: {memory: 384Mi}
+    # -- `manage.py document_llmindex migrate`, only when `PAPERLESS_AI_ENABLED` is true
+    llmindexMigrate:
+      resources:
+        requests: {memory: 128Mi}
+        limits: {memory: 256Mi}
+    # -- `manage.py document_index reindex --if-needed`
+    reindex:
+      enabled: true
+      resources:
+        requests: {memory: 256Mi}
+        limits: {memory: 512Mi}
+    # -- `manage.py manage_superuser`, from `PAPERLESS_ADMIN_USER` and `PAPERLESS_ADMIN_PASSWORD`
+    superuser:
+      enabled: true
+      resources:
+        requests: {memory: 128Mi}
+        limits: {memory: 384Mi}
+    # -- `manage.py check`
+    systemChecks:
+      enabled: true
+      resources:
+        requests: {memory: 256Mi}
+        limits: {memory: 256Mi}
+
+  containers:
+    # -- granian, serving the web UI and the API on port 8000
+    webserver:
+      resources:
+        requests: {memory: 384Mi}
+        limits: {memory: 768Mi}
+    # -- `manage.py document_consumer`, watching the consume folder
+    consumer:
+      resources:
+        requests: {memory: 128Mi}
+        limits: {memory: 512Mi}
+    # -- Celery beat
+    scheduler:
+      resources:
+        requests: {memory: 256Mi}
+        limits: {memory: 512Mi}
+    # -- Celery worker: OCR, classification, AI
+    worker:
+      resources:
+        requests: {memory: 256Mi}
+        limits: {memory: 4096Mi}
+
+persistence:
+  # -- Persist paperless's data, media, consume and export folders (as subPaths of one volume).
+  # When false, an emptyDir: everything is lost with the pod
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim instead of creating one
+  existingClaim: ''
+  storageClassName: ''
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  # -- Bind to a specific PersistentVolume
+  volumeName: ''
+  labels: {}
+  # -- Annotations of the PersistentVolumeClaim. It is kept on uninstall (`helm.sh/resource-policy: keep`)
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+#
+# Gateway API
+#
+
+httpRoute:
+  # -- Expose paperless through an HTTPRoute
+  enabled: false
+  annotations: {}
+  labels: {}
+  # -- Gateways to attach to
+  parentRefs: []
+  # - {namespace: gateway, name: default, sectionName: https}
+  hostnames: []
+  # -- Filters of the rule sending traffic to paperless (security headers…)
+  filters: []
+  # -- Extra rules, besides the catch-all one: a longer path prefix takes precedence regardless of order.
+  # Implementation-specific filters (Envoy Gateway's HTTPRouteFilter…) go here. The HTTPRoute is named
+  # after the full name, for policies to target it
+  extraRules: []
+
+#
+# Cilium
+#
+
+ciliumNetworkPolicy:
+  # -- CiliumNetworkPolicies: paperless's ingress (`ingress`) and egress (its components,
+  # raw.githubusercontent.com when `PAPERLESS_OCR_LANGUAGES` is set, `egress`), and the components'
+  # ingress, from paperless only. FQDN rules need a DNS proxy rule, such as a cluster-wide policy for kube-dns
+  enabled: false
+  # -- Ingress rules of paperless (the gateway…)
+  ingress: []
+  # - {fromEndpoints: [matchLabels: {k8s:io.kubernetes.pod.namespace: envoy-gateway-system}], toPorts: [ports: [{port: '8000', protocol: TCP}]]}
+  # -- Extra egress rules of paperless (the database, mail servers, LLM…)
+  egress: []
+  # - {toFQDNs: [matchName: db.example.com], toPorts: [ports: [{port: '5432', protocol: TCP}]]}
+
+#
+# Tika and Gotenberg: Office documents and emails. Enabled together, or not at all
+#
+
+tika:
+  # -- Deploy Apache Tika and set paperless's Tika endpoint
+  enabled: true
+  image:
+    repository: docker.io/apache/tika
+    tag: 3.3.1.0-full@sha256:d8e6ed96260ad89307a93195a1b856102987a818ac648502f8efbaf313d32470
+    pullPolicy: IfNotPresent
+  resources:
+    requests: {memory: 256Mi}
+    limits: {memory: 512Mi}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 35002
+    runAsGroup: 35002
+    fsGroup: 35002
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+gotenberg:
+  # -- Deploy Gotenberg and set paperless's Gotenberg endpoint
+  enabled: true
+  image:
+    repository: docker.io/gotenberg/gotenberg
+    tag: 8.37@sha256:f29984bd1e226bf1b93ba90af06000afa8b315853e99d27b9aaa41b93f15c769
+    pullPolicy: IfNotPresent
+  # -- Gotenberg's arguments: no JavaScript, and no file access outside its temporary folder
+  args:
+    - gotenberg
+    - --chromium-disable-javascript=true
+    - --chromium-allow-list=file:///tmp/.*
+  resources:
+    requests: {memory: 64Mi}
+    limits: {memory: 128Mi}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+#
+# Valkey: the Celery broker. Bundled, opt-out (externalValkey)
+#
+
+valkey:
+  # -- Deploy Valkey as paperless's broker. Disable to use `externalValkey`
+  enabled: true
+  image:
+    repository: docker.io/valkey/valkey
+    tag: 9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+    pullPolicy: IfNotPresent
+  # -- Valkey's arguments: no persistence (the broker only holds tasks in flight)
+  args: [--save, '', --protected-mode, 'no']
+  resources:
+    requests: {memory: 64Mi}
+    limits: {memory: 64Mi}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+externalValkey:
+  # -- Broker URL (`PAPERLESS_REDIS`) when `valkey.enabled` is false. With credentials in it,
+  # leave this empty and set `PAPERLESS_REDIS` in `paperless.existingSecret` instead
+  url: ''

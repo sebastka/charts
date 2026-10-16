@@ -1,0 +1,88 @@
+---
+suite: networking
+templates: [HTTPRoute.yaml, CiliumNetworkPolicy.yaml, ExtraObjects.yaml]
+release: {name: paperless, namespace: documents}
+tests:
+  - it: renders no Gateway API nor Cilium resource by default
+    asserts:
+      - hasDocuments: {count: 0}
+        template: HTTPRoute.yaml
+      - hasDocuments: {count: 0}
+        template: CiliumNetworkPolicy.yaml
+
+  - it: routes everything to paperless, with the rule's filters
+    template: HTTPRoute.yaml
+    set:
+      httpRoute:
+        enabled: true
+        parentRefs: [{namespace: gateway, name: default}]
+        hostnames: [paperless.example.com]
+        filters: [{type: ResponseHeaderModifier, responseHeaderModifier: {add: [{name: X-Test, value: '1'}]}}]
+    asserts:
+      - equal: {path: spec.hostnames, value: [paperless.example.com]}
+      - lengthEqual: {path: spec.rules, count: 1}
+      - equal:
+          path: spec.rules[0].backendRefs
+          value: [{name: paperless, kind: Service, port: 80}]
+      - equal: {path: 'spec.rules[0].filters[0].type', value: ResponseHeaderModifier}
+
+  - it: puts the extra rules before the catch-all one
+    template: HTTPRoute.yaml
+    set:
+      httpRoute:
+        enabled: true
+        parentRefs: [{name: default}]
+        extraRules:
+          - matches: [path: {type: PathPrefix, value: /admin/login}]
+            filters: [{type: ExtensionRef, extensionRef: {group: gateway.envoyproxy.io, kind: HTTPRouteFilter, name: deny}}]
+    asserts:
+      - lengthEqual: {path: spec.rules, count: 2}
+      - equal: {path: 'spec.rules[0].matches[0].path.value', value: /admin/login}
+      - equal: {path: 'spec.rules[1].matches[0].path.value', value: /}
+
+  - it: lets paperless reach its own components, and only paperless reach them
+    template: CiliumNetworkPolicy.yaml
+    set:
+      ciliumNetworkPolicy.enabled: true
+    asserts:
+      - hasDocuments: {count: 4}
+      - lengthEqual: {path: spec.egress, count: 3}
+        documentIndex: 0
+      - equal: {path: 'spec.egress[0].toEndpoints[0].matchLabels["app.kubernetes.io/name"]', value: gotenberg}
+        documentIndex: 0
+      - equal: {path: 'spec.egress[2].toEndpoints[0].matchLabels["app.kubernetes.io/name"]', value: valkey}
+        documentIndex: 0
+      - equal:
+          path: spec.ingress[0].fromEndpoints[0].matchLabels
+          value:
+            app.kubernetes.io/name: paperless
+            app.kubernetes.io/instance: paperless
+            k8s:io.kubernetes.pod.namespace: documents
+        documentIndex: 3
+
+  - it: allows tessdata's downloads when languages are set, and the extra rules
+    template: CiliumNetworkPolicy.yaml
+    documentIndex: 0
+    set:
+      valkey.enabled: false
+      tika.enabled: false
+      gotenberg.enabled: false
+      ciliumNetworkPolicy:
+        enabled: true
+        egress: [{toFQDNs: [{matchName: db.example.com}]}]
+      paperless.env.PAPERLESS_OCR_LANGUAGES: nor
+    asserts:
+      - hasDocuments: {count: 1}
+      - equal:
+          path: spec.egress
+          value:
+            - {toFQDNs: [matchName: raw.githubusercontent.com], toPorts: [ports: [{port: '443', protocol: TCP}]]}
+            - {toFQDNs: [{matchName: db.example.com}]}
+
+  - it: renders extraObjects through tpl
+    template: ExtraObjects.yaml
+    set:
+      extraObjects:
+        - {apiVersion: v1, kind: ConfigMap, metadata: {name: '{{ .Release.Name }}-extra'}}
+    asserts:
+      - equal: {path: metadata.name, value: paperless-extra}

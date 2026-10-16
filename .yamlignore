@@ -1,0 +1,2 @@
+# Go templates, not YAML: helm lint and kubeconform check what they render
+charts/*/templates/

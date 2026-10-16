@@ -1,0 +1,243 @@
+{{- $init := .Values.paperless.initContainers }}
+{{- $containers := .Values.paperless.containers }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "paperless.fullname" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "paperless.labels" (list . "paperless") | nindent 4 }}
+  {{- with .Values.paperless.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # A single replica: the consumer watches one folder, and the data volume is ReadWriteOnce
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "paperless.selectorLabels" (list . "paperless") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "paperless.labels" (list . "paperless") | nindent 8 }}
+        {{- with .Values.paperless.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/ConfigMaps.yaml") . | sha256sum }}
+        {{- with .Values.paperless.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "paperless.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with include "paperless.imagePullSecrets" . | trim }}{{ . | nindent 6 }}{{ end }}
+      securityContext:
+        {{- toYaml .Values.paperless.podSecurityContext | nindent 8 }}
+      {{- with .Values.paperless.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.paperless.terminationGracePeriodSeconds }}
+      {{- with include "paperless.scheduling" .Values.paperless | trim }}{{ . | nindent 6 }}{{ end }}
+      # Mirrors the s6 init chain of upstream's image (this one has no s6, nor a shell: Python throughout)
+      # Deliberately skipped: init-tesseract-langs (tessdata does it), init-modify-user, init-env-file, init-custom-init
+      # https://github.com/paperless-ngx/paperless-ngx/tree/dev/docker/rootfs/etc/s6-overlay/s6-rc.d
+      initContainers:
+        # The image's own Tesseract data, plus PAPERLESS_OCR_LANGUAGES from tesseract-ocr/tessdata, into TESSDATA_PREFIX
+        - name: tessdata
+          image: {{ include "paperless.image" (list . .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [paperless-tessdata]
+          securityContext:
+            {{- toYaml .Values.paperless.securityContext | nindent 12 }}
+          envFrom:
+            - configMapRef: {name: {{ include "paperless.componentName" (list . "env") }}}
+          resources:
+            {{- toYaml $init.tessdata.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tessdata, mountPath: /mnt/tessdata}
+        - name: wait-for-db
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [paperless-wait-for-db]  # pg_isready's job, with psycopg
+          resources:
+            {{- toYaml $init.waitForDb.resources | nindent 12 }}
+        - name: wait-for-redis
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, /usr/local/bin/wait-for-redis.py]
+          resources:
+            {{- toYaml $init.waitForRedis.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+        - name: folders
+          {{- include "paperless.container" . | nindent 10 }}
+          command:
+            - python3
+            - -c
+            - |
+              import os
+              for path in (f"{os.environ['PAPERLESS_DATA_DIR']}/index",
+                           f"{os.environ['PAPERLESS_MEDIA_ROOT']}/documents/originals",
+                           f"{os.environ['PAPERLESS_MEDIA_ROOT']}/documents/thumbnails",
+                           os.environ['PAPERLESS_CONSUMPTION_DIR'], os.environ['PAPERLESS_EMPTY_TRASH_DIR'],
+                           '/usr/src/paperless/export'):
+                  os.makedirs(path, exist_ok=True)
+          resources:
+            {{- toYaml $init.folders.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "export") | nindent 12 }}
+        - name: migrate
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, manage.py, migrate, --noinput]
+          resources:
+            {{- toYaml $init.migrate.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "tessdata") | nindent 12 }}
+        {{- if include "paperless.envTrue" (list . "PAPERLESS_AI_ENABLED") }}
+        - name: llmindex-migrate
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, manage.py, document_llmindex, migrate]
+          resources:
+            {{- toYaml $init.llmindexMigrate.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "tessdata") | nindent 12 }}
+        {{- end }}
+        {{- if $init.reindex.enabled }}
+        - name: reindex
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, manage.py, document_index, reindex, --if-needed, --no-progress-bar]
+          resources:
+            {{- toYaml $init.reindex.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "tessdata") | nindent 12 }}
+        {{- end }}
+        {{- if $init.superuser.enabled }}
+        - name: superuser
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, manage.py, manage_superuser]
+          resources:
+            {{- toYaml $init.superuser.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "tessdata") | nindent 12 }}
+        {{- end }}
+        {{- if $init.systemChecks.enabled }}
+        - name: system-checks
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [python3, manage.py, check]
+          resources:
+            {{- toYaml $init.systemChecks.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "paperless.dataMounts" (list "tessdata") | nindent 12 }}
+        {{- end }}
+      containers:
+        - name: consumer
+          {{- include "paperless.container" . | nindent 10 }}
+          # document_consumer stops cleanly on SIGINT (KeyboardInterrupt) but, as PID 1, would ignore
+          # Kubernetes' SIGTERM: run it as a child and pass SIGTERM on as SIGINT
+          command:
+            - python3
+            - -c
+            - |
+              import signal, subprocess, sys
+              consumer = subprocess.Popen([sys.executable, 'manage.py', 'document_consumer'])
+              for sig in (signal.SIGTERM, signal.SIGINT):
+                  signal.signal(sig, lambda *_: consumer.send_signal(signal.SIGINT))
+              sys.exit(consumer.wait())
+          resources:
+            {{- toYaml $containers.consumer.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /var/cache}
+            {{- include "paperless.dataMounts" (list "export" "tessdata") | nindent 12 }}
+            {{- with include "paperless.scriptMounts" . | trim }}{{ . | nindent 12 }}{{ end }}
+        - name: scheduler
+          {{- include "paperless.container" . | nindent 10 }}
+          command: [celery, --app, paperless, beat, --loglevel, INFO]
+          resources:
+            {{- toYaml $containers.scheduler.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /var/cache}
+            {{- include "paperless.dataMounts" (list) | nindent 12 }}
+        - name: worker
+          image: {{ include "paperless.image" (list . .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [celery, --app, paperless, worker, --loglevel, INFO]
+          securityContext:
+            {{- toYaml .Values.paperless.securityContext | nindent 12 }}
+          env:
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            {{- with .Values.paperless.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- include "paperless.envFrom" . | nindent 12 }}
+          # The worker's node name is celery@<hostname>, the pod's name (no shell to read $HOSTNAME)
+          lifecycle: {preStop: {exec: {command: [celery, --app, paperless, control, shutdown, --destination, 'celery@$(POD_NAME)']}}}
+          startupProbe: {exec: {command: [/usr/local/bin/worker-health]}, initialDelaySeconds: 10, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
+          livenessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
+          readinessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
+          resources:
+            {{- toYaml $containers.worker.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /var/cache}
+            - {name: scripts, mountPath: /usr/local/bin/worker-health, subPath: worker-health.py, readOnly: true}
+            {{- if .Values.paperless.aiReviewScript }}
+            - {name: scripts, mountPath: /usr/local/bin/paperless-ai-review, subPath: paperless-ai-review.py, readOnly: true}
+            {{- end }}
+            {{- include "paperless.dataMounts" (list "export" "tessdata") | nindent 12 }}
+            {{- with include "paperless.scriptMounts" . | trim }}{{ . | nindent 12 }}{{ end }}
+        - name: webserver
+          image: {{ include "paperless.image" (list . .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [granian, --interface, asginl, --no-access-log, --ws, 'paperless.asgi:application']
+          securityContext:
+            {{- toYaml .Values.paperless.securityContext | nindent 12 }}
+          {{- if or .Values.paperless.webserver.customSettings .Values.paperless.extraEnv }}
+          env:
+            {{- if .Values.paperless.webserver.customSettings }}
+            - {name: DJANGO_SETTINGS_MODULE, value: webserver}
+            - {name: PYTHONPATH, value: /mnt/settings}
+            {{- end }}
+            {{- with .Values.paperless.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+            {{- include "paperless.envFrom" . | nindent 12 }}
+          ports:
+            - {name: http, protocol: TCP, containerPort: 8000}
+          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 12}
+          livenessProbe: {httpGet: {port: http, path: /}, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3}
+          readinessProbe: {httpGet: {port: http, path: /}, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3}
+          resources:
+            {{- toYaml $containers.webserver.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /var/cache}
+            {{- if .Values.paperless.webserver.customSettings }}
+            - {name: settings, mountPath: /mnt/settings/webserver.py, subPath: webserver.py, readOnly: true}
+            {{- end }}
+            {{- include "paperless.dataMounts" (list) | nindent 12 }}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: cache, emptyDir: {}}
+        - {name: tessdata, emptyDir: {sizeLimit: {{ .Values.paperless.tessdataSizeLimit }}}}
+        - {name: scripts, configMap: {name: {{ include "paperless.componentName" (list . "scripts") }}, defaultMode: 493}}  # 0o755
+        {{- if .Values.paperless.webserver.customSettings }}
+        - {name: settings, configMap: {name: {{ include "paperless.componentName" (list . "settings") }}}}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - {name: data, persistentVolumeClaim: {claimName: {{ include "paperless.pvcName" . }}}}
+        {{- else }}
+        - {name: data, emptyDir: {}}
+        {{- end }}
