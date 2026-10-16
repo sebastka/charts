@@ -83,6 +83,11 @@ tests:
       - lengthEqual: {path: spec.template.spec.initContainers, count: 6}
       - equal: {path: 'spec.template.spec.initContainers[5].name', value: llmindex-migrate}
 
+  - it: keeps the chart version out of the pod template
+    template: Deployment.paperless.yaml
+    asserts:
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+
   - it: rolls the pod when the configuration changes
     template: Deployment.paperless.yaml
     set:

@@ -78,6 +78,18 @@ tests:
           path: spec.selector.matchLabels
           value: {app.kubernetes.io/name: tika, app.kubernetes.io/instance: paperless}
 
+  - it: keeps the chart version out of pod templates, so a release restarts only what changed
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: Valkey.yaml
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: Tika.yaml
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: Gotenberg.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]', value: key-value-store}
+        template: Valkey.yaml
+
   - it: overrides a component's image
     template: Valkey.yaml
     documentSelector: {path: kind, value: Deployment}

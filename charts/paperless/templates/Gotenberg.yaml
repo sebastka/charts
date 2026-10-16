@@ -26,7 +26,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "paperless.labels" (list . "gotenberg") | nindent 8 }}
+        {{- include "paperless.podLabels" (list . "gotenberg") | nindent 8 }}
         {{- with .Values.gotenberg.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -52,9 +52,10 @@ spec:
             {{- toYaml .Values.gotenberg.securityContext | nindent 12 }}
           ports:
             - {name: http, protocol: TCP, containerPort: 3000}
-          startupProbe: {httpGet: {port: http, path: /health}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 3}
-          livenessProbe: {httpGet: {port: http, path: /health}, initialDelaySeconds: 10, periodSeconds: 120}
-          readinessProbe: {httpGet: {port: http, path: /health}, initialDelaySeconds: 10, periodSeconds: 120}
+          # Readiness gates the Service's endpoints: checked often, it is cheap. Liveness stays slow
+          startupProbe: {httpGet: {port: http, path: /health}, initialDelaySeconds: 2, periodSeconds: 5, failureThreshold: 12}
+          livenessProbe: {httpGet: {port: http, path: /health}, periodSeconds: 120}
+          readinessProbe: {httpGet: {port: http, path: /health}, periodSeconds: 10}
           resources:
             {{- toYaml .Values.gotenberg.resources | nindent 12 }}
 ---
