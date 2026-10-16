@@ -25,7 +25,9 @@ env:
 jobs:
   # A chart is released when its <chart>-<version> tag does not exist yet: the tag is the release's
   # last step, so a release that failed halfway (pushed, not attested) is picked up again by a rerun.
-  # CI's version increment check makes every change to a chart bump its version
+  # CI's version increment check makes every change to a chart bump its version, but only against the
+  # base the PR was tested on: two PRs bumping the same version (Renovate's, opened side by side) merge
+  # as one version. A chart that changed since its version's tag fails the run rather than going unreleased
   prepare:
     name: Charts to release
     runs-on: ubuntu-latest
@@ -37,25 +39,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          fetch-depth: 0  # the tags, and the history to diff against them
           persist-credentials: false
 
       - name: Collect unreleased versions
         id: collect
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
         run: |
-          charts=()
+          charts=() stale=()
           for chart in charts/*/; do
             name="$(yq '.name' "$chart/Chart.yaml")"
             version="$(yq '.version' "$chart/Chart.yaml")"
-            if gh api "repos/${REPO}/git/ref/tags/${name}-${version}" > /dev/null 2>&1; then
-              echo "${name} ${version}: already released"
-            else
+            tag="${name}-${version}"
+            if ! git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
               echo "${name} ${version}: to release"
               charts+=("$name")
+            elif git diff --quiet "$tag" HEAD -- "$chart"; then
+              echo "${name} ${version}: already released"
+            else
+              echo "::error::${name} changed since ${tag} without a version bump: bump charts/${name}/Chart.yaml"
+              git diff --stat "$tag" HEAD -- "$chart"
+              stale+=("$name")
             fi
           done
+          (( ${#stale[@]} == 0 )) || exit 1
           jq -cn '$ARGS.positional' --args "${charts[@]}" | sed 's/^/charts=/' >> "$GITHUB_OUTPUT"
 
   release:
