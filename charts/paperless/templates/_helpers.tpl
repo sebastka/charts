@@ -53,6 +53,32 @@ helm.sh/chart: {{ printf "%s-%s" $ctx.Chart.Name $ctx.Chart.Version | replace "+
 {{- end }}
 {{- end }}
 
+{{/*
+Pod template labels: (list $ "tika"). Without helm.sh/chart, whose version would restart every pod on
+every chart release, an image bump of another component included
+*/}}
+{{- define "paperless.podLabels" -}}
+{{- $ctx := index . 0 }}
+{{- $component := index (include "paperless.components" $ctx | fromYaml) (index . 1) -}}
+{{ include "paperless.selectorLabels" . }}
+app.kubernetes.io/component: {{ $component.component }}
+app.kubernetes.io/part-of: {{ include "paperless.name" $ctx }}
+{{- with $ctx.Values.commonLabels }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}
+
+{{/* Checksum of what the ConfigMaps hold, not of their metadata (which carries the chart version) */}}
+{{- define "paperless.configChecksum" -}}
+{{- list
+  (include "paperless.env" .)
+  (.Files.Get "files/scripts/worker-health.py")
+  (ternary (.Files.Get "files/scripts/paperless-ai-review.py") "" .Values.paperless.aiReviewScript)
+  (ternary (.Files.Get "files/settings/webserver.py") "" .Values.paperless.webserver.customSettings)
+  (toYaml .Values.paperless.scripts)
+  | join "\n" | sha256sum }}
+{{- end }}
+
 {{/* Image reference: (list $ .Values.image). The tag may carry a digest (tag@sha256:...) */}}
 {{- define "paperless.image" -}}
 {{- $ctx := index . 0 }}

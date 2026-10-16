@@ -26,7 +26,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "paperless.labels" (list . "tika") | nindent 8 }}
+        {{- include "paperless.podLabels" (list . "tika") | nindent 8 }}
         {{- with .Values.tika.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -50,9 +50,10 @@ spec:
             {{- toYaml .Values.tika.securityContext | nindent 12 }}
           ports:
             - {name: http, protocol: TCP, containerPort: 9998}
-          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 3}
-          livenessProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 10, periodSeconds: 120}
-          readinessProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 10, periodSeconds: 120}
+          # Readiness gates the Service's endpoints: checked often, it is cheap. Liveness stays slow
+          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 5, failureThreshold: 12}
+          livenessProbe: {httpGet: {port: http, path: /}, periodSeconds: 120}
+          readinessProbe: {httpGet: {port: http, path: /}, periodSeconds: 10}
           resources:
             {{- toYaml .Values.tika.resources | nindent 12 }}
           volumeMounts:

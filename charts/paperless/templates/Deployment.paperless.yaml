@@ -22,12 +22,12 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "paperless.labels" (list . "paperless") | nindent 8 }}
+        {{- include "paperless.podLabels" (list . "paperless") | nindent 8 }}
         {{- with .Values.paperless.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/ConfigMaps.yaml") . | sha256sum }}
+        checksum/config: {{ include "paperless.configChecksum" . }}
         {{- with .Values.paperless.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -182,9 +182,10 @@ spec:
             {{- include "paperless.envFrom" . | nindent 12 }}
           # The worker's node name is celery@<hostname>, the pod's name (no shell to read $HOSTNAME)
           lifecycle: {preStop: {exec: {command: [celery, --app, paperless, control, shutdown, --destination, 'celery@$(POD_NAME)']}}}
-          startupProbe: {exec: {command: [/usr/local/bin/worker-health]}, initialDelaySeconds: 10, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
+          # Each check is a Celery ping through the broker: up to 3 minutes to start, then every 30s
+          startupProbe: {exec: {command: [/usr/local/bin/worker-health]}, initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 10, failureThreshold: 18}
           livenessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
-          readinessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
+          readinessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 3}
           resources:
             {{- toYaml $containers.worker.resources | nindent 12 }}
           volumeMounts:
@@ -216,9 +217,9 @@ spec:
             {{- include "paperless.envFrom" . | nindent 12 }}
           ports:
             - {name: http, protocol: TCP, containerPort: 8000}
-          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 12}
+          startupProbe: {httpGet: {port: http, path: /}, initialDelaySeconds: 2, periodSeconds: 5, failureThreshold: 24}
           livenessProbe: {httpGet: {port: http, path: /}, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3}
-          readinessProbe: {httpGet: {port: http, path: /}, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3}
+          readinessProbe: {httpGet: {port: http, path: /}, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 3}
           resources:
             {{- toYaml $containers.webserver.resources | nindent 12 }}
           volumeMounts:

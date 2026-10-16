@@ -26,7 +26,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "paperless.labels" (list . "valkey") | nindent 8 }}
+        {{- include "paperless.podLabels" (list . "valkey") | nindent 8 }}
         {{- with .Values.valkey.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -52,9 +52,11 @@ spec:
           ports:
             - {name: valkey, protocol: TCP, containerPort: 6379}
           lifecycle: {preStop: {exec: {command: [sleep, '30']}}}
-          startupProbe: {tcpSocket: {port: valkey}, initialDelaySeconds: 2, periodSeconds: 10, failureThreshold: 3}
-          livenessProbe: {tcpSocket: {port: valkey}, initialDelaySeconds: 10, periodSeconds: 120}
-          readinessProbe: {tcpSocket: {port: valkey}, initialDelaySeconds: 10, periodSeconds: 120}
+          # Readiness gates the Service's endpoints, which paperless's wait-for-redis waits on: checked
+          # often, it is cheap. Liveness stays slow
+          startupProbe: {tcpSocket: {port: valkey}, initialDelaySeconds: 1, periodSeconds: 2, failureThreshold: 15}
+          livenessProbe: {tcpSocket: {port: valkey}, periodSeconds: 120}
+          readinessProbe: {tcpSocket: {port: valkey}, periodSeconds: 10}
           resources:
             {{- toYaml .Values.valkey.resources | nindent 12 }}
 ---
