@@ -78,5 +78,13 @@
       "matchUpdateTypes": ["major"],
       "automerge": false
     }
+  ],
+  "hostRules": [
+    {
+      "description": "Docker Hub, authenticated against its anonymous pull-rate limit. DOCKERHUB_TOKEN is a secret in this repository's Mend settings",
+      "matchHost": "docker.io",
+      "username": "sebastka",
+      "password": "{{ secrets.DOCKERHUB_TOKEN }}"
+    }
   ]
 }
