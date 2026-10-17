@@ -180,8 +180,8 @@ spec:
             {{- end }}
           envFrom:
             {{- include "paperless.envFrom" . | nindent 12 }}
-          # The worker's node name is celery@<hostname>, the pod's name (no shell to read $HOSTNAME)
-          lifecycle: {preStop: {exec: {command: [celery, --app, paperless, control, shutdown, --destination, 'celery@$(POD_NAME)']}}}
+          # The worker's node name is celery@<pod name>. No shell, and the kubelet does not expand $(POD_NAME) in hooks: read it from Python
+          lifecycle: {preStop: {exec: {command: [python, -c, 'import os; from paperless.celery import app; raise SystemExit(0 if app.control.shutdown(destination=["celery@" + os.environ["POD_NAME"]], reply=True, timeout=5) else 1)']}}}
           # Each check is a Celery ping through the broker: up to 3 minutes to start, then every 30s
           startupProbe: {exec: {command: [/usr/local/bin/worker-health]}, initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 10, failureThreshold: 18}
           livenessProbe: {exec: {command: [/usr/local/bin/worker-health]}, periodSeconds: 60, timeoutSeconds: 10, failureThreshold: 3}
