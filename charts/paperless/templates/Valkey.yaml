@@ -51,7 +51,6 @@ spec:
             {{- toYaml .Values.valkey.securityContext | nindent 12 }}
           ports:
             - {name: valkey, protocol: TCP, containerPort: 6379}
-          lifecycle: {preStop: {exec: {command: [sleep, '30']}}}
           # Readiness gates the Service's endpoints, which paperless's wait-for-redis waits on: checked
           # often, it is cheap. Liveness stays slow
           startupProbe: {tcpSocket: {port: valkey}, initialDelaySeconds: 1, periodSeconds: 2, failureThreshold: 15}
