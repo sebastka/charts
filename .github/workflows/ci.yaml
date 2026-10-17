@@ -122,11 +122,13 @@ jobs:
         if: steps.changed.outputs.changed == 'true'
         uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa  # v1.15.1
 
-      # Installs each changed chart once per ci/*-values.yaml file, waits for every pod to be ready,
-      # then upgrades it from the target branch's version when there is one
+      # Per changed chart and ci/*-values.yaml file, each in its own namespace, waiting for every pod
+      # to be ready: the target branch's version upgraded to this one, this one upgraded onto itself,
+      # and a plain install. Nothing is cleaned up between them: the kind cluster goes with the job,
+      # and deleting each namespace took 40% of the step
       - name: ct install
         if: steps.changed.outputs.changed == 'true'
-        run: ct install --config ct.yaml --upgrade
+        run: ct install --config ct.yaml --upgrade --skip-clean-up
 
   config:
     name: Misconfiguration scan
