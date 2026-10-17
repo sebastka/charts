@@ -22,7 +22,7 @@ image:
   repository: ghcr.io/sebastka/paperless
   # -- Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion
   # @default -- pinned in values.yaml, updated by Renovate
-  tag: 3.3.1@sha256:dbc0905e8a5b3c14efd9c426a178df2b46263d2b73b314ab32144a4258fd2394
+  tag: 3.3.2@sha256:b381f9846cfc2d68e8b161a65c04b6d825ef7a23d49420034d3399a799466447
   pullPolicy: IfNotPresent
 
 paperless:
