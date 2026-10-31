@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "stringMap": {"type": "object", "additionalProperties": {"type": "string"}},
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image"],
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "resources": {"type": "object"},
+        "securityContext": {"type": "object"}
+      }
+    }
+  },
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "commonLabels": {"$ref": "#/definitions/stringMap"},
+    "imagePullSecrets": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+    "extraObjects": {"type": "array", "items": {"type": "object"}},
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {"type": "string"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "name": {"type": "string", "minLength": 1},
+        "user": {"type": "string", "minLength": 1},
+        "password": {"type": "string"},
+        "existingSecret": {"type": "string"},
+        "existingSecretKey": {"type": "string", "minLength": 1},
+        "createSchema": {"type": "boolean"}
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "extraConfig": {"type": "string"},
+        "config": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9]*$"},
+          "additionalProperties": {"type": ["string", "integer", "boolean"]}
+        },
+        "resources": {"type": "object"},
+        "podSecurityContext": {"type": "object"},
+        "securityContext": {"type": "object"},
+        "podLabels": {"$ref": "#/definitions/stringMap"},
+        "podAnnotations": {"$ref": "#/definitions/stringMap"},
+        "nodeSelector": {"$ref": "#/definitions/stringMap"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"}
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 0},
+        "nginx": {"$ref": "#/definitions/container"},
+        "php": {"$ref": "#/definitions/container"},
+        "timezone": {"type": "string", "minLength": 1},
+        "extraConfig": {"type": "string"},
+        "podSecurityContext": {"type": "object"},
+        "podLabels": {"$ref": "#/definitions/stringMap"},
+        "podAnnotations": {"$ref": "#/definitions/stringMap"},
+        "nodeSelector": {"$ref": "#/definitions/stringMap"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "web": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "server": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "annotations": {"$ref": "#/definitions/stringMap"}
+      }
+    },
+    "httpRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "parentRefs": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+        "hostnames": {"type": "array", "items": {"type": "string"}},
+        "annotations": {"$ref": "#/definitions/stringMap"}
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"properties": {"parentRefs": {"minItems": 1}}}
+    }
+  }
+}

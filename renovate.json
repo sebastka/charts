@@ -74,6 +74,11 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Zabbix's server and frontend images, and the zabbix chart's appVersion, in one PR: the server upgrades the database schema, and the frontend refuses one of another version",
+      "matchPackageNames": ["ghcr.io/sebastka/zabbix-*"],
+      "groupName": "zabbix"
+    },
+    {
       "description": "Majors always need a human; keep them off automerge",
       "matchUpdateTypes": ["major"],
       "automerge": false

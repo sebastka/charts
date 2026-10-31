@@ -1,0 +1,17 @@
+---
+apiVersion: v2
+name: zabbix
+description: Zabbix server and frontend, one process per container, against an external PostgreSQL
+type: application
+version: 0.1.0
+appVersion: 7.4.16  # renovate: datasource=docker depName=ghcr.io/sebastka/zabbix-server
+kubeVersion: '>=1.30.0-0'
+home: https://github.com/sebastka/charts/tree/master/charts/zabbix
+sources:
+  - https://github.com/sebastka/charts/tree/master/charts/zabbix
+  - https://github.com/sebastka/containers/tree/main/apps/zabbix-server
+  - https://github.com/zabbix/zabbix
+keywords: [zabbix, monitoring, snmp, alerting]
+maintainers:
+  - name: sebastka
+    url: https://github.com/sebastka

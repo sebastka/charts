@@ -1,0 +1,46 @@
+---
+# Every optional feature on, as a homelab would run it: rendered for kubeconform in CI
+commonLabels: {example.com/team: monitoring}
+imagePullSecrets: [{name: regcred}]
+
+database:
+  host: postgres.example.com
+  name: zabbix
+  user: zabbix
+  existingSecret: zabbix-database
+  existingSecretKey: postgres-password
+
+server:
+  extraConfig: |
+    HANodeName=first
+    NodeAddress=zbx-zabbix-server:10051
+  config:
+    StartPollers: 10
+    StartPreprocessors: 3
+    DebugLevel: 3
+  podAnnotations:
+    reloader.stakater.com/auto: 'true'
+  nodeSelector: {kubernetes.io/arch: amd64}
+
+web:
+  timezone: Europe/Oslo
+  extraConfig: |
+    $ZBX_SERVER_NAME = 'Example';
+  podLabels: {example.com/exposed: 'true'}
+
+service:
+  annotations: {example.com/scrape: 'false'}
+
+httpRoute:
+  enabled: true
+  parentRefs:
+    - {namespace: gateway, name: default, sectionName: https}
+  hostnames: [zabbix.example.com]
+  annotations: {example.com/auth: sso}
+
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: '{{ include "zabbix.fullname" . }}-extra'
+    data: {release: '{{ .Release.Name }}'}

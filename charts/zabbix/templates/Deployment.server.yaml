@@ -1,0 +1,169 @@
+{{- $name := include "zabbix.componentName" (list . "server") }}
+{{- $db := .Values.database }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zabbix.labels" (list . "server") | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zabbix.labels" (list . "server") | nindent 4 }}
+spec:
+  replicas: 1
+  # One server writes to one database: never two at once, not even briefly during a rollout
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "zabbix.selectorLabels" (list . "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zabbix.podLabels" (list . "server") | nindent 8 }}
+        {{- with .Values.server.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- include "zabbix.configChecksum" (list . "server") | nindent 8 }}
+        {{- with .Values.server.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.server.podSecurityContext | nindent 8 }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if $db.createSchema }}
+        # Waits for the database, then loads the schema into it if nothing is there. The server
+        # image carries both the .sql files and psql, so this needs no second image and no second
+        # registry to pull one from. to_regclass is the guard: on every start after the first it
+        # finds the table and the whole step is one query.
+        - name: schema
+          image: {{ include "zabbix.image" (list .Values.server.image .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              export PGPASSWORD="$(cat /run/secrets/database/password)"
+              psql="psql --host={{ $db.host }} --port={{ $db.port }} --username={{ $db.user }} --dbname={{ $db.name }} --no-password"
+              until $psql --quiet --tuples-only --no-align --command 'select 1' >/dev/null 2>&1; do
+                  echo 'waiting for the database'
+                  sleep 2
+              done
+              if [ -n "$($psql --tuples-only --no-align --command "select to_regclass('public.users')")" ]; then
+                  echo 'schema is already there, nothing to load'
+                  exit 0
+              fi
+              for file in schema images data; do
+                  echo "loading ${file}.sql"
+                  $psql --quiet --set ON_ERROR_STOP=1 --file "/usr/share/zabbix/${file}.sql"
+              done
+          securityContext:
+            {{- toYaml .Values.server.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: database, mountPath: /run/secrets/database, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+        {{- end }}
+        # zabbix_server reads the password from its configuration file and from nowhere else, so
+        # the file is assembled here rather than mounted whole: the ConfigMap's copy plus one line
+        # from the Secret, onto a volume that never reaches a disk.
+        - name: config
+          image: {{ include "zabbix.image" (list .Values.server.image .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              umask 077
+              cat /etc/zabbix/zabbix_server.conf > /run/zabbix/zabbix_server.conf
+              printf 'DBPassword=%s\n' "$(cat /run/secrets/database/password)" >> /run/zabbix/zabbix_server.conf
+          securityContext:
+            {{- toYaml .Values.server.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/zabbix/zabbix_server.conf, subPath: zabbix_server.conf, readOnly: true}
+            - {name: database, mountPath: /run/secrets/database, readOnly: true}
+            - {name: conf, mountPath: /run/zabbix}
+      containers:
+        - name: server
+          image: {{ include "zabbix.image" (list .Values.server.image .Chart.AppVersion) }}
+          args: [-c, /run/zabbix/zabbix_server.conf]
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.server.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          ports:
+            - {name: server, protocol: TCP, containerPort: {{ .Values.service.server }}}
+          # The server opens its listener only once it has reached the database and loaded its
+          # caches, so a TCP check is a genuine readiness signal rather than a liveness one
+          startupProbe:
+            tcpSocket: {port: server}
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket: {port: server}
+            periodSeconds: 60
+          readinessProbe:
+            tcpSocket: {port: server}
+            periodSeconds: 30
+          volumeMounts:
+            - {name: conf, mountPath: /run/zabbix, readOnly: true}
+            # zabbix_server writes its own working files here under a read-only root
+            - {name: run, mountPath: /var/lib/zabbix}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}}
+        - name: database
+          secret:
+            secretName: {{ default $name $db.existingSecret }}
+            items:
+              - {key: {{ $db.existingSecretKey }}, path: password}
+        # The assembled configuration, password and all: memory-backed, so it is never written to
+        # a node's disk
+        - {name: conf, emptyDir: {medium: Memory}}
+        - {name: run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+{{- if not $db.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zabbix.labels" (list . "server") | nindent 4 }}
+type: Opaque
+stringData:
+  {{ $db.existingSecretKey }}: {{ $db.password | quote }}
+{{- end }}

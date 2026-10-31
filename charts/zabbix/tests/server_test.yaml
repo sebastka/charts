@@ -1,0 +1,82 @@
+---
+suite: server
+# ConfigMaps.yaml is listed because the pods annotate a checksum of it: helm-unittest loads only
+# the templates a suite names, and the include fails without it.
+templates: [ConfigMaps.yaml, Deployment.server.yaml, Service.yaml]
+release: {name: zbx, namespace: monitoring}
+set:
+  database.host: postgres.example.com
+  database.password: s3cret
+tests:
+  # Two servers writing to one database corrupt it. Recreate, never a rolling update, and never
+  # a second replica: both are deliberate and neither is exposed as a value.
+  - it: never runs two servers at once
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: spec.replicas, value: 1}
+      - equal: {path: spec.strategy.type, value: Recreate}
+
+  - it: assembles the configuration onto a volume that never reaches a disk
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: "spec.template.spec.initContainers[1].name", value: config}
+      - matchRegex:
+          path: "spec.template.spec.initContainers[1].args[0]"
+          pattern: "printf 'DBPassword=%s"
+      - equal:
+          path: spec.template.spec.volumes[?(@.name=="conf")].emptyDir.medium
+          value: Memory
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [-c, /run/zabbix/zabbix_server.conf]
+
+  - it: gives fping a ping group it may use, for icmpping items
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.securityContext.sysctls
+          content: {name: net.ipv4.ping_group_range, value: '0 1995'}
+
+  - it: rolls the pod when the configuration changes
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - exists: {path: "spec.template.metadata.annotations['checksum/config']"}
+
+  - it: pins the image by digest, overridden together with the tag
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      server.image.tag: 7.4.1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/sebastka/zabbix-server:7.4.1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - it: falls back to the appVersion without a tag
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      server.image.tag: ''
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/sebastka/zabbix-server:\d+\.\d+\.\d+$
+
+  - it: keeps the chart version out of the pod template, so a release restarts only what changed
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/version"]'}
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]', value: monitoring-server}
+
+  - it: serves agents and proxies on the server Service only
+    template: Service.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-server}
+    asserts:
+      - equal: {path: "spec.ports[0].port", value: 10051}
+      - equal: {path: "spec.ports[0].targetPort", value: server}

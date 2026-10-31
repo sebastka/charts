@@ -1,0 +1,146 @@
+---
+# -- Override the chart name
+nameOverride: ''
+# -- Override the fully qualified name
+fullnameOverride: ''
+# -- Labels added to every object
+commonLabels: {}
+# -- Image pull secrets for every pod
+imagePullSecrets: []
+
+# The external PostgreSQL. This chart does not deploy one: Zabbix keeps years of history, which
+# belongs on a database you back up and upgrade deliberately.
+database:
+  # -- Hostname of the PostgreSQL server. Required.
+  host: ''
+  # -- Port
+  port: 5432
+  # -- Database name
+  name: zabbix
+  # -- Role the server and the frontend connect as
+  user: zabbix
+  # -- Password. Ignored when existingSecret is set.
+  password: ''
+  # -- Secret holding the password, instead of spelling it out above
+  existingSecret: ''
+  # -- Key within that Secret
+  existingSecretKey: password
+  # -- Load schema.sql, images.sql and data.sql into an empty database before the server starts.
+  # An init container on the server pod, using the psql and the .sql files in the server image: it
+  # waits for the database, and does nothing when a schema is already there.
+  createSchema: true
+
+server:
+  image:
+    repository: ghcr.io/sebastka/zabbix-server
+    # -- Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion
+    # @default -- pinned in values.yaml, updated by Renovate
+    tag: 7.4.16@sha256:fe048306b4ac4937af7525d41a85c146945fd39387fb27c7d795382e56f0c32d
+    pullPolicy: IfNotPresent
+  # -- Extra lines appended to zabbix_server.conf, for anything this chart does not expose
+  extraConfig: ''
+  # -- Settings rendered into zabbix_server.conf. Zabbix's own defaults apply to anything omitted.
+  config:
+    StartPollers: 5
+    StartPingers: 1
+    StartDiscoverers: 5
+    StartHTTPPollers: 1
+    CacheSize: 32M
+    HistoryCacheSize: 16M
+    ValueCacheSize: 32M
+    Timeout: 4
+    LogType: console
+  resources:
+    requests: {memory: 256Mi}
+    limits: {memory: 1Gi}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1997
+    runAsGroup: 1995
+    fsGroup: 1995
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+    # fping needs a ping group it is allowed to use, for icmpping items
+    sysctls:
+      - {name: net.ipv4.ping_group_range, value: '0 1995'}
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+web:
+  replicas: 1
+  nginx:
+    image:
+      repository: ghcr.io/sebastka/zabbix-web-nginx
+      # -- Tag and digest. Same Zabbix version as the server: Renovate updates the three together
+      # @default -- pinned in values.yaml, updated by Renovate
+      tag: 7.4.16@sha256:0abfa5ccec24e1c6e9556d9f265a1df4292fccdae74a9d5cf9f3dd603ae307fd
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {memory: 32Mi}
+      limits: {memory: 128Mi}
+    # -- The nginx image's own user. /var/lib/nginx is 0750 and owned by it, so another uid cannot
+    # even traverse in: this is not the same user as php below, which is why neither is set on the
+    # pod.
+    securityContext:
+      runAsUser: 65532
+      runAsGroup: 65532
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: {drop: [ALL]}
+  php:
+    image:
+      repository: ghcr.io/sebastka/zabbix-web-php
+      # -- Tag and digest. Same Zabbix version as the server: Renovate updates the three together
+      # @default -- pinned in values.yaml, updated by Renovate
+      tag: 7.4.16@sha256:610c84a4209b2e8952433376b46ed222ae8639a5801cfaf275acdb96ae36cf2f
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {memory: 128Mi}
+      limits: {memory: 512Mi}
+    # -- Zabbix's own uid and gid, as in the server image
+    securityContext:
+      runAsUser: 1997
+      runAsGroup: 1995
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: {drop: [ALL]}
+  # -- PHP timezone for the frontend
+  timezone: UTC
+  # -- Extra PHP statements appended to zabbix.conf.php
+  extraConfig: ''
+  # -- No runAsUser here: the two containers run as different users, and each sets its own. fsGroup
+  # is what lets both write the shared emptyDirs.
+  podSecurityContext:
+    runAsNonRoot: true
+    fsGroup: 1995
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile: {type: RuntimeDefault}
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+service:
+  # -- Port the frontend is served on
+  web: 80
+  # -- Port the server listens on for agents and proxies
+  server: 10051
+  annotations: {}
+
+httpRoute:
+  # -- Expose the frontend through a Gateway API HTTPRoute
+  enabled: false
+  parentRefs: []
+  hostnames: []
+  annotations: {}
+
+# -- Objects rendered as they are, for anything this chart does not cover
+extraObjects: []

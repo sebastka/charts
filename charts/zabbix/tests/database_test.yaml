@@ -1,0 +1,102 @@
+---
+suite: database, secret and schema
+# Deployment.web.yaml is in the list only for the two tests that assert a refusal: the pod
+# annotations check the ConfigMaps template for a checksum, so that is where Helm stops first and
+# where it attributes the message.
+templates: [ConfigMaps.yaml, Deployment.server.yaml, Deployment.web.yaml]
+release: {name: zbx, namespace: monitoring}
+set:
+  database.host: postgres.example.com
+  database.password: s3cret
+tests:
+  - it: refuses to render without a database host
+    template: Deployment.web.yaml
+    set:
+      database.host: ''
+    asserts:
+      - failedTemplate:
+          errorMessage: 'database.host is required: this chart does not deploy PostgreSQL'
+
+  - it: refuses to render without a password or a Secret to take one from
+    template: Deployment.web.yaml
+    set:
+      database.password: ''
+    asserts:
+      - failedTemplate:
+          errorMessage: 'set database.password, or database.existingSecret to take it from a Secret'
+
+  - it: accepts an existing Secret instead of a password, and creates none of its own
+    template: Deployment.server.yaml
+    set:
+      database.password: ''
+      database.existingSecret: zabbix-db
+      database.existingSecretKey: postgres-password
+    asserts:
+      - hasDocuments: {count: 2}  # ServiceAccount and Deployment, no Secret
+      - equal:
+          path: spec.template.spec.volumes[?(@.name=="database")].secret.secretName
+          value: zabbix-db
+        documentSelector: {path: kind, value: Deployment}
+      - equal:
+          path: spec.template.spec.volumes[?(@.name=="database")].secret.items[0].key
+          value: postgres-password
+        documentSelector: {path: kind, value: Deployment}
+
+  # The server reads its password from its configuration file and from nowhere else, so the
+  # ConfigMap must not be where it ends up: `helm get manifest` would print it.
+  - it: keeps the password out of the rendered configuration
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-server}
+    asserts:
+      - matchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 'DBHost=postgres\.example\.com'
+      - matchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 'DBUser=zabbix'
+      - notMatchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 'DBPassword'
+      - notMatchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 's3cret'
+
+  - it: renders server.config and extraConfig into the configuration
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-server}
+    set:
+      server.config.StartPollers: 42
+      server.extraConfig: |
+        HANodeName=first
+    asserts:
+      - matchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 'StartPollers=42'
+      - matchRegex:
+          path: data["zabbix_server.conf"]
+          pattern: 'HANodeName=first'
+
+  - it: loads the schema from an init container on the server pod
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: "spec.template.spec.initContainers[0].name", value: schema}
+      # The same image as the server: it carries both the .sql files and psql
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].image
+          pattern: '^ghcr\.io/sebastka/zabbix-server:'
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].args[0]
+          pattern: "to_regclass\\('public.users'\\)"
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].args[0]
+          pattern: '/usr/share/zabbix/\$\{file\}.sql'
+
+  - it: leaves the schema alone when the database is managed elsewhere
+    template: Deployment.server.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      database.createSchema: false
+    asserts:
+      - lengthEqual: {path: spec.template.spec.initContainers, count: 1}
+      - equal: {path: "spec.template.spec.initContainers[0].name", value: config}

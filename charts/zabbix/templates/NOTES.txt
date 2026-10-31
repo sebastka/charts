@@ -1,0 +1,26 @@
+{{ include "zabbix.fullname" . }} {{ .Chart.AppVersion }}
+
+The frontend is served by {{ include "zabbix.componentName" (list . "web") }} on port {{ .Values.service.web }}.
+{{- if .Values.httpRoute.enabled }}
+{{- range .Values.httpRoute.hostnames }}
+  https://{{ . }}
+{{- end }}
+{{- else }}
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zabbix.componentName" (list . "web") }} 8080:{{ .Values.service.web }}
+{{- end }}
+
+Agents and proxies connect to {{ include "zabbix.componentName" (list . "server") }}:{{ .Values.service.server }}.
+
+{{ if .Values.database.createSchema -}}
+An init container on the server pod loads the schema into {{ .Values.database.name }} on
+{{ .Values.database.host }} if it is empty, waiting for the database first. It does nothing when
+a schema is already there, so watch that pod rather than this message:
+
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ include "zabbix.componentName" (list . "server") }} -c schema
+{{- else -}}
+database.createSchema is off: load schema.sql, images.sql and data.sql yourself before the server
+starts, in that order, or it will exit.
+{{- end }}
+
+Sign in as Admin / zabbix and change that password before exposing this to anything.
