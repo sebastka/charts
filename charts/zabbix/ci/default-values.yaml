@@ -1,0 +1,48 @@
+---
+# ct install, on kind. This chart deploys no database on purpose, so the one it is installed
+# against is rendered through its own extraObjects: a throwaway PostgreSQL with no persistence,
+# named literally rather than templated so database.host below can name it back. Nothing here is
+# a suggestion for a real deployment — point database.host at a server you back up.
+database:
+  host: zabbix-ci-postgres
+  password: ct-install-only
+
+extraObjects:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: zabbix-ci-postgres
+    spec:
+      selector: {app: zabbix-ci-postgres}
+      ports:
+        - {name: postgres, port: 5432, targetPort: postgres}
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: zabbix-ci-postgres
+    spec:
+      replicas: 1
+      selector:
+        matchLabels: {app: zabbix-ci-postgres}
+      template:
+        metadata:
+          labels: {app: zabbix-ci-postgres}
+        spec:
+          containers:
+            - name: postgres
+              image: docker.io/library/postgres:18-alpine
+              env:
+                - {name: POSTGRES_DB, value: zabbix}
+                - {name: POSTGRES_USER, value: zabbix}
+                - {name: POSTGRES_PASSWORD, value: ct-install-only}
+                # The image's own PGDATA sits outside the mount in 18; this puts it inside
+                - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+              ports:
+                - {name: postgres, protocol: TCP, containerPort: 5432}
+              readinessProbe:
+                exec: {command: [pg_isready, -U, zabbix, -d, zabbix]}
+                periodSeconds: 5
+              volumeMounts:
+                - {name: data, mountPath: /var/lib/postgresql/data}
+          volumes:
+            - {name: data, emptyDir: {}}

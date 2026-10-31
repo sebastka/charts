@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zabbix.componentName" (list . "web") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zabbix.labels" (list . "web") | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zabbix.selectorLabels" (list . "web") | nindent 4 }}
+  ports:
+    - {name: http, protocol: TCP, port: {{ .Values.service.web }}, targetPort: http}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Agents and proxies connect here, and the frontend asks it for queue and status data
+  name: {{ include "zabbix.componentName" (list . "server") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zabbix.labels" (list . "server") | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zabbix.selectorLabels" (list . "server") | nindent 4 }}
+  ports:
+    - {name: server, protocol: TCP, port: {{ .Values.service.server }}, targetPort: server}

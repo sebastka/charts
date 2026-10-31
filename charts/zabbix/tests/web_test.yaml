@@ -1,0 +1,107 @@
+---
+suite: frontend
+templates: [ConfigMaps.yaml, Deployment.web.yaml, Service.yaml, HTTPRoute.yaml]
+release: {name: zbx, namespace: monitoring}
+set:
+  database.host: postgres.example.com
+  database.password: s3cret
+tests:
+  - it: runs nginx and php-fpm as one process each, in one pod
+    template: Deployment.web.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - lengthEqual: {path: spec.template.spec.containers, count: 2}
+      - equal: {path: "spec.template.spec.containers[0].name", value: nginx}
+      - equal: {path: "spec.template.spec.containers[1].name", value: php}
+
+  # The nginx image is 65532 and owns /var/lib/nginx as 0750; php-fpm is Zabbix's own 1997:1995.
+  # One runAsUser on the pod would lock one of them out, so each container carries its own and
+  # fsGroup is what makes the shared emptyDirs writable for both.
+  - it: runs each container as the user its image expects
+    template: Deployment.web.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: "spec.template.spec.containers[0].securityContext.runAsUser", value: 65532}
+      - equal: {path: "spec.template.spec.containers[1].securityContext.runAsUser", value: 1997}
+      - notExists: {path: spec.template.spec.securityContext.runAsUser}
+      - equal: {path: spec.template.spec.securityContext.fsGroup, value: 1995}
+      - equal: {path: spec.template.spec.securityContext.runAsNonRoot, value: true}
+
+  # nginx reaches php-fpm over the pod's loopback, so 9000 is on no Service and no NetworkPolicy
+  # has to account for it.
+  - it: keeps FastCGI off the network
+    asserts:
+      - matchRegex:
+          path: data["default.conf"]
+          pattern: 'fastcgi_pass 127\.0\.0\.1:9000;'
+        template: ConfigMaps.yaml
+        documentSelector: {path: metadata.name, value: zbx-zabbix-web}
+      - notContains:
+          path: spec.ports
+          content: {name: fastcgi, protocol: TCP, port: 9000}
+          any: true
+        template: Service.yaml
+        documentSelector: {path: metadata.name, value: zbx-zabbix-web}
+
+  # CConfigFile::CONFIG_FILE_PATH, resolved against the frontend's root: the frontend reads it
+  # from there and nowhere else, and offers its installation wizard when it is missing.
+  - it: mounts zabbix.conf.php where the frontend reads it
+    template: Deployment.web.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: config
+            mountPath: /usr/share/zabbix/conf/zabbix.conf.php
+            subPath: zabbix.conf.php
+            readOnly: true
+
+  - it: reads the database password from the Secret, not from the ConfigMap
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-web}
+    asserts:
+      - matchRegex:
+          path: data["zabbix.conf.php"]
+          pattern: "file_get_contents\\('/run/secrets/database/password'\\)"
+      - notMatchRegex:
+          path: data["zabbix.conf.php"]
+          pattern: 's3cret'
+
+  - it: points the frontend at the server by Service name
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-web}
+    asserts:
+      - matchRegex:
+          path: data["zabbix.conf.php"]
+          pattern: "ZBX_SERVER      = 'zbx-zabbix-server'"
+      - matchRegex:
+          path: data["zabbix.conf.php"]
+          pattern: "ZBX_SERVER_PORT = '10051'"
+
+  - it: takes the PHP timezone from values
+    template: ConfigMaps.yaml
+    documentSelector: {path: metadata.name, value: zbx-zabbix-web}
+    set:
+      web.timezone: Europe/Oslo
+    asserts:
+      - matchRegex:
+          path: data["zabbix-php.ini"]
+          pattern: 'date.timezone = Europe/Oslo'
+
+  - it: exposes no HTTPRoute unless asked
+    template: HTTPRoute.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: routes to the frontend Service when asked
+    template: HTTPRoute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs: [{namespace: gateway, name: default, sectionName: https}]
+      httpRoute.hostnames: [zabbix.example.com]
+    asserts:
+      - hasDocuments: {count: 1}
+      - equal: {path: "spec.hostnames[0]", value: zabbix.example.com}
+      - equal: {path: "spec.rules[0].backendRefs[0].name", value: zbx-zabbix-web}
+      - equal: {path: "spec.rules[0].backendRefs[0].port", value: 80}

@@ -1,0 +1,6 @@
+# Kept out of the packaged chart
+.*
+*.tgz
+*.md.gotmpl
+ci/
+tests/

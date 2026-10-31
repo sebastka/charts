@@ -5,6 +5,7 @@ Helm charts for my [homelab](https://github.com/sebastka/homelab), published as 
 | Chart | Application |
 |-------|-------------|
 | [paperless](charts/paperless) | [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx), on [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless) |
+| [zabbix](charts/zabbix) | [Zabbix](https://github.com/zabbix/zabbix) server and frontend, against an external PostgreSQL, on [sebastka/containers' images](https://github.com/sebastka/containers/tree/main/apps) |
 
 ```sh
 helm install paperless oci://ghcr.io/sebastka/charts/paperless --namespace paperless --create-namespace

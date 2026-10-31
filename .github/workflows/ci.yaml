@@ -72,7 +72,16 @@ jobs:
           tar -xzf kubeconform.tar.gz kubeconform
 
           for chart in charts/*/; do
-            for values in /dev/null "$chart"tests/values/*.yaml; do
+            # A chart's ci/ values are what `ct install` installs it with: its own statement of the
+            # smallest configuration that works. Charts that refuse to render without one — zabbix
+            # needs a database host, since it deploys no database — are checked against that
+            # instead of against no values at all.
+            base=(/dev/null)
+            if compgen -G "${chart}ci/*-values.yaml" > /dev/null; then
+              base=("${chart}"ci/*-values.yaml)
+            fi
+
+            for values in "${base[@]}" "$chart"tests/values/*.yaml; do
               [[ -e "$values" ]] || continue
               echo "::group::$chart with $values"
               helm template "$(basename "$chart")" "$chart" --namespace ci --values "$values" \
