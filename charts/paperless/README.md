@@ -2,16 +2,11 @@
 
 paperless-ngx, rootless and one process per container, with optional Tika, Gotenberg and Valkey
 
-<!-- Nothing Renovate updates (chart and app versions, image tags) appears here: its pull requests
-cannot regenerate this README, and CI fails on a stale one. -->
+<!-- Nothing Renovate updates (chart and app versions, image tags) appears here: its pull requests cannot regenerate this README, and CI fails on a stale one. -->
 
-[paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) without s6: one pod, one process per
-container (webserver, consumer, Celery worker and scheduler), every container rootless with a read-only
-root filesystem. Its init containers mirror the s6 init chain of upstream's image: Tesseract data, waits
-for the database and the broker, folders, migrations, index, superuser, system checks.
+[paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) without s6: one pod, one process per container (webserver, consumer, Celery worker and scheduler), every container rootless with a read-only root filesystem. Its init containers mirror the s6 init chain of upstream's image: Tesseract data, waits for the database and the broker, folders, migrations, index, superuser, system checks.
 
-It runs [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless),
-built on Docker Hardened Images, without a shell: upstream's image will not work.
+It runs [sebastka/containers' image](https://github.com/sebastka/containers/tree/main/apps/paperless), built on Docker Hardened Images, without a shell: upstream's image will not work.
 
 ## Installing
 
@@ -19,9 +14,7 @@ built on Docker Hardened Images, without a shell: upstream's image will not work
 helm install paperless oci://ghcr.io/sebastka/charts/paperless --namespace paperless --create-namespace
 ```
 
-With nothing else set, paperless runs on SQLite with the bundled Valkey, Tika and Gotenberg. Set
-`paperless.existingSecret` to a Secret holding at least `PAPERLESS_SECRET_KEY`, and, for PostgreSQL,
-`PAPERLESS_DBHOST` (in `paperless.env`) and `PAPERLESS_DBPASS` (in the Secret).
+With nothing else set, paperless runs on SQLite with the bundled Valkey, Tika and Gotenberg. Set `paperless.existingSecret` to a Secret holding at least `PAPERLESS_SECRET_KEY`, and, for PostgreSQL, `PAPERLESS_DBHOST` (in `paperless.env`) and `PAPERLESS_DBPASS` (in the Secret).
 
 Releases are attested by GitHub Actions:
 
@@ -40,10 +33,7 @@ gh attestation verify --repo sebastka/charts oci://ghcr.io/sebastka/charts/paper
 
 ## Configuration
 
-`paperless.env` is rendered into a ConfigMap, over what the chart sets itself: the folders it mounts,
-`PAPERLESS_REDIS` and the Tika and Gotenberg endpoints (from the enabled components), `TESSDATA_PREFIX`,
-and the listening address. Changing it rolls the pod. Secrets go in `paperless.existingSecret`, which
-takes precedence.
+`paperless.env` is rendered into a ConfigMap, over what the chart sets itself: the folders it mounts, `PAPERLESS_REDIS` and the Tika and Gotenberg endpoints (from the enabled components), `TESSDATA_PREFIX`, and the listening address. Changing it rolls the pod. Secrets go in `paperless.existingSecret`, which takes precedence.
 
 ```yaml
 paperless:
@@ -56,8 +46,7 @@ paperless:
     PAPERLESS_TIME_ZONE: Europe/Berlin
 ```
 
-The webserver runs with the chart's Django settings (`paperless.webserver.customSettings`): `__Host-`
-prefixed, Secure cookies, so serve it over HTTPS, or turn them off.
+The webserver runs with the chart's Django settings (`paperless.webserver.customSettings`): `__Host-` prefixed, Secure cookies, so serve it over HTTPS, or turn them off.
 
 ## Password logins behind SSO
 
@@ -67,13 +56,11 @@ prefixed, Secure cookies, so serve it over HTTPS, or turn them off.
 - `POST /api/token/`, which mints an API token from a username and a password.
 - `/admin/login/`, Django's admin login form.
 
-The last two are the gateway's to block, for instance with `httpRoute.extraRules` matching them and an
-implementation-specific filter answering 403.
+The last two are the gateway's to block, for instance with `httpRoute.extraRules` matching them and an implementation-specific filter answering 403.
 
 ## Upgrading
 
-The Deployment's selector is `app.kubernetes.io/name` and `app.kubernetes.io/instance`: immutable, so
-never renamed. The PersistentVolumeClaim the chart creates is kept on uninstall.
+The Deployment's selector is `app.kubernetes.io/name` and `app.kubernetes.io/instance`: immutable, so never renamed. The PersistentVolumeClaim the chart creates is kept on uninstall.
 
 ## Requirements
 
