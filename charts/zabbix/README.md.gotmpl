@@ -69,13 +69,13 @@ Both roll the pod when they change, through a checksum annotation.
 
 The frontend takes `web.timezone` for PHP and `web.extraConfig` for anything else `zabbix.conf.php` can hold, such as `$ZBX_SERVER_NAME`.
 
+`icmpping` items shell out to `fping`, which needs the pod's group inside `net.ipv4.ping_group_range`. The server's pod sets it: a safe sysctl since Kubernetes 1.18, so no kubelet flag is needed.
+
 ## What this chart leaves to you
 
 **Agents.** Nothing here deploys `zabbix-agent` or `zabbix-agent2`. The server monitors what it can reach; run agents as their own DaemonSet or Deployment.
 
 **Network policies.** Paperless's chart ships CiliumNetworkPolicies; this one does not, because the traffic that matters here is site-specific — agents and proxies connect to `10051` from wherever they happen to run, and the server polls SNMP, ICMP and HTTP targets across the network. A policy written from this chart's point of view would be either useless or wrong. Put yours in `extraObjects`, where they are templated with the release.
-
-**ICMP checks.** `icmpping` items shell out to `fping`, which needs the pod's group inside `net.ipv4.ping_group_range`. The server's pod sets that sysctl itself, but the kubelet has to allow it: `--allowed-unsafe-sysctls=net.ipv4.ping_group_range`, or the pod will not start.
 
 ## Upgrading
 
