@@ -3,7 +3,7 @@ apiVersion: v2
 name: paperless
 description: paperless-ngx, rootless and one process per container, with optional Tika, Gotenberg and Valkey
 type: application
-version: 0.1.22
+version: 0.1.23
 appVersion: 3.4.1  # renovate: datasource=docker depName=ghcr.io/sebastka/paperless
 kubeVersion: '>=1.30.0-0'
 home: https://github.com/sebastka/charts/tree/master/charts/paperless
