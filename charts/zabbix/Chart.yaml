@@ -3,7 +3,7 @@ apiVersion: v2
 name: zabbix
 description: Zabbix server and frontend, one process per container, against an external PostgreSQL
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: 7.4.16  # renovate: datasource=docker depName=ghcr.io/sebastka/zabbix-server
 kubeVersion: '>=1.30.0-0'
 home: https://github.com/sebastka/charts/tree/master/charts/zabbix
