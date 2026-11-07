@@ -35,7 +35,7 @@ server:
     repository: ghcr.io/sebastka/zabbix-server
     # -- Tag, optionally with its digest (`tag@sha256:…`). Defaults to the chart's appVersion
     # @default -- pinned in values.yaml, updated by Renovate
-    tag: 7.4.16@sha256:fffd8cc33093401b90c372e8c77be9d691064fe5d3f395e85931a92b92920c96
+    tag: 7.4.16@sha256:a4d4fab69048b19be925c4d0751cadd97be63347cd0f25e1fa82ee196acf53d4
     pullPolicy: IfNotPresent
   # -- Extra lines appended to zabbix_server.conf, for anything this chart does not expose
   extraConfig: ''
@@ -80,7 +80,7 @@ web:
       repository: ghcr.io/sebastka/zabbix-web-nginx
       # -- Tag and digest. Same Zabbix version as the server: Renovate updates the three together
       # @default -- pinned in values.yaml, updated by Renovate
-      tag: 7.4.16@sha256:4a8607cf2ea4f23cb74b0199a4b748b677bcc0829f05038ccbab91d4015c7fab
+      tag: 7.4.16@sha256:80df9075e8c15557ef879f0fc6e4abf83b00d6e234a1eb458840c47e8d2921ce
       pullPolicy: IfNotPresent
     resources:
       requests: {memory: 32Mi}
@@ -99,7 +99,7 @@ web:
       repository: ghcr.io/sebastka/zabbix-web-php
       # -- Tag and digest. Same Zabbix version as the server: Renovate updates the three together
       # @default -- pinned in values.yaml, updated by Renovate
-      tag: 7.4.16@sha256:2a1f96f193f472315704516e69537105ef0c6cee9024d03af7f3d05aaabeb9eb
+      tag: 7.4.16@sha256:989e20b9e0c879dae6ea8d173b86014e10a2b232cead26f2ceb26f2c408d9029
       pullPolicy: IfNotPresent
     resources:
       requests: {memory: 128Mi}
