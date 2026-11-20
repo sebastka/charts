@@ -80,7 +80,7 @@ web:
       repository: ghcr.io/sebastka/zabbix-web-nginx
       # -- Tag and digest. Same Zabbix version as the server: Renovate updates the three together
       # @default -- pinned in values.yaml, updated by Renovate
-      tag: 7.4.16@sha256:ffd1cf351386c9bcc4b2cac723306c78696370b06e46d81c68e55f6383ec6b39
+      tag: 7.4.16@sha256:7cd64b244ba8a81bd8e69ee1e4df5a8c58656cbe395e71792c8d98a090aed55a
       pullPolicy: IfNotPresent
     resources:
       requests: {memory: 32Mi}
