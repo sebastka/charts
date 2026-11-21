@@ -171,6 +171,37 @@ tests:
           path: spec.ports
           value: [{name: http, protocol: TCP, port: 80, targetPort: http}]
 
+  - it: probes the webserver with PAPERLESS_URL's host, which Django allows, not the pod's IP
+    template: Deployment.paperless.yaml
+    set:
+      paperless.env.PAPERLESS_URL: https://docs.example.org
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "webserver")].startupProbe.httpGet.httpHeaders
+          value: [{name: Host, value: docs.example.org}]
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "webserver")].livenessProbe.httpGet.httpHeaders
+          value: [{name: Host, value: docs.example.org}]
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "webserver")].readinessProbe.httpGet.httpHeaders
+          value: [{name: Host, value: docs.example.org}]
+
+  - it: probes the webserver with probeHost when set
+    template: Deployment.paperless.yaml
+    set:
+      paperless.env.PAPERLESS_URL: https://docs.example.org
+      paperless.webserver.probeHost: paperless.internal
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "webserver")].readinessProbe.httpGet.httpHeaders
+          value: [{name: Host, value: paperless.internal}]
+
+  - it: sends no Host header to the webserver's probes without PAPERLESS_URL or probeHost
+    template: Deployment.paperless.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[?(@.name == "webserver")].livenessProbe.httpGet.httpHeaders
+
   - it: can use an existing ServiceAccount
     set:
       paperless.serviceAccount: {create: false, name: shared}

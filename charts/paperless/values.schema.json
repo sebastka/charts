@@ -69,7 +69,7 @@
         "webserver": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {"customSettings": {"type": "boolean"}}
+          "properties": {"customSettings": {"type": "boolean"}, "probeHost": {"type": "string"}}
         },
         "aiReviewScript": {"type": "boolean"},
         "scripts": {

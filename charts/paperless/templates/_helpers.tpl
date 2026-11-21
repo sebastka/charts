@@ -154,6 +154,15 @@ envFrom:
   {{- include "paperless.envFrom" . | nindent 2 }}
 {{- end }}
 
+{{/* The webserver probes' Host header: paperless.webserver.probeHost, else the host of PAPERLESS_URL, else none */}}
+{{- define "paperless.probeHost" -}}
+{{- if .Values.paperless.webserver.probeHost -}}
+{{- .Values.paperless.webserver.probeHost -}}
+{{- else if (.Values.paperless.env | default dict).PAPERLESS_URL -}}
+{{- (urlParse (toString .Values.paperless.env.PAPERLESS_URL)).host -}}
+{{- end -}}
+{{- end -}}
+
 {{/* The ConfigMap, then the Secret (which wins on duplicate keys), then extraEnvFrom */}}
 {{- define "paperless.envFrom" -}}
 - configMapRef: {name: {{ include "paperless.componentName" (list . "env") }}}
