@@ -151,6 +151,7 @@ Kubernetes: `>=1.30.0-0`
 | paperless.tessdataSizeLimit | string | `"256Mi"` | Size limit of the emptyDir holding Tesseract's data (the image's, plus `PAPERLESS_OCR_LANGUAGES`) |
 | paperless.tolerations | list | `[]` |  |
 | paperless.webserver.customSettings | bool | `true` | Run the webserver with the chart's Django settings (`files/settings/webserver.py`): an access log in the combined format, `__Host-` prefixed, Secure and SameSite=Strict cookies (HTTPS only), and no HTTP Basic authentication on the API when `PAPERLESS_DISABLE_REGULAR_LOGIN` is set |
+| paperless.webserver.probeHost | string | `""` | `Host` header of the webserver's probes. Django answers 400 to a host outside `ALLOWED_HOSTS`, which `PAPERLESS_URL` restricts to its own host, and the kubelet sends the pod's IP: the probes would fail. Defaults to the host of `paperless.env.PAPERLESS_URL` (none without it: every host is allowed then). Set it when `PAPERLESS_URL` is in `existingSecret`, or `PAPERLESS_ALLOWED_HOSTS` leaves that host out |
 | persistence.accessModes[0] | string | `"ReadWriteOnce"` |  |
 | persistence.annotations | object | `{}` | Annotations of the PersistentVolumeClaim. It is kept on uninstall (`helm.sh/resource-policy: keep`) |
 | persistence.enabled | bool | `true` | Persist paperless's data, media, consume and export folders (as subPaths of one volume). When false, an emptyDir: everything is lost with the pod |
