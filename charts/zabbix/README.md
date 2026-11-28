@@ -81,6 +81,8 @@ The frontend takes `web.timezone` for PHP and `web.extraConfig` for anything els
 
 The Deployments' selectors are `app.kubernetes.io/name` and `app.kubernetes.io/instance`: immutable, so never renamed. Nothing in this chart holds state — the database does.
 
+A new Zabbix branch, such as 7.4 to 8.0, upgrades the database schema the first time the new server starts, and there is no way back: back the database up first. The server's `Recreate` strategy stops the old server before the new one starts, so the two never write to it at once. Until the upgrade finishes, the frontend refuses to show anything but a database version mismatch; follow it in the server's logs. Check the new branch's database requirements before upgrading: Zabbix 8.0 needs PostgreSQL 13 or later, and supports 15 to 18.
+
 ## Requirements
 
 Kubernetes: `>=1.30.0-0`
